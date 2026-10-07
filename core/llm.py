@@ -332,7 +332,29 @@ class MistralProvider(ProviderLLM):
             kwargs["tools"] = outils_api
             kwargs["parallel_tool_calls"] = True
         try:
-            rep = self.client.chat.completions.create(**kwargs)
+            import time as _t
+            secours = reglage("mistral.modeles_secours", ["ministral-8b-latest", "open-mistral-nemo"]) or []
+            rep, derniere = None, None
+            for _modele in [self.modele] + [m for m in secours if m != self.modele]:
+                kwargs["model"] = _modele
+                for _essai in range(2):      # plan gratuit : debit limite (429) -> on patiente un peu
+                    try:
+                        rep = self.client.chat.completions.create(**kwargs)
+                        break
+                    except Exception as _e:
+                        derniere = _e
+                        if getattr(_e, "status_code", None) != 429:
+                            raise
+                        if _essai == 0:
+                            print(f"  [mistral] 429 sur {_modele}, nouvel essai dans 3 s...")
+                            _t.sleep(3)
+                if rep is not None:
+                    if _modele != self.modele:
+                        print(f"  [mistral] reponse obtenue avec le modele de secours {_modele}.")
+                    break
+                print(f"  [mistral] {_modele} limite (429), je tente le modele suivant...")
+            if rep is None:
+                raise derniere
             cloud.enregistrer_usage(rep, "Mistral (Jarvis)", self.modele)
             message = rep.choices[0].message
             blocs = []
@@ -354,11 +376,21 @@ class MistralProvider(ProviderLLM):
                 ))
             stop = "tool_use" if any(b.type == "tool_use" for b in blocs) else "end"
             return Reponse(stop, blocs)
-        except Exception:
+        except Exception as e:
             LOG.exception("mistral: appel Chat Completions en echec")
-            return Reponse("end", [Bloc("text", text=(
-                "Je n'arrive pas à joindre Mistral pour le moment. "
-                "Vérifie la connexion Internet et la clé Mistral."))])
+            code = getattr(e, "status_code", None)
+            detail = str(getattr(e, "message", e))[:300].replace("\n", " ")
+            print(f"  [mistral] ERREUR {type(e).__name__}{f' HTTP {code}' if code else ''} "
+                  f"(modele {self.modele}) : {detail}")
+            if code in (401, 403):
+                msg = "La clé Mistral est refusée. Vérifie mistral.cle dans config.yaml."
+            elif code == 429:
+                msg = "La limite du plan gratuit Mistral est atteinte. Réessaie dans une minute."
+            elif code in (400, 404, 422):
+                msg = "Mistral a refusé la requête. Regarde le message d'erreur dans la console."
+            else:
+                msg = "Je n'arrive pas à joindre Mistral pour le moment. Vérifie la connexion Internet."
+            return Reponse("end", [Bloc("text", text=msg)])
 
 
 # --------------------------------------------------------------- Ollama (local)

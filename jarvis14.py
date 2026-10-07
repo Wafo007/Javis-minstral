@@ -2,7 +2,7 @@
 Assistant vocal local, avec mot d'activation et actions.
 
 Dites « Hey Jarvis », parlez, taisez-vous. Il repond et agit.
-Chaine : openWakeWord -> faster-whisper -> LLM cloud configurable/Ollama (+ outils)
+Chaine : wake word (Whisper tiny / openWakeWord) -> faster-whisper -> LLM cloud configurable/Ollama (+ outils)
          -> moteur vocal configurable (ElevenLabs/Piper/Kokoro/SAPI)
 
 Architecture : les outils vivent dans tools/ (auto-decouverts via core.registre),
@@ -31,9 +31,7 @@ except Exception:
     pass
 
 import numpy as np
-import openwakeword
 import sounddevice as sd
-from openwakeword.model import Model as WakeModel
 
 from core import config, journal, memoire, personnalite, registre, voix
 from core.confirmation_vocale import NON, TOUJOURS, interpreter_confirmation
@@ -826,6 +824,10 @@ def charger_whisper():
     if transcription.moteur() == "openai" and transcription.cloud_autorise():
         print("Transcription par OpenAI (stt.moteur: openai).")
         return transcription.TranscripteurCloud()
+    distant = transcription.choisir_transcripteur_distant()
+    if distant is not None:
+        print(f"Transcription par {distant.nom}.")
+        return distant
     if not transcription.whisper_local_disponible():
         repli = transcription.repli_cloud("faster-whisper absent")
         if repli is None:
@@ -1255,9 +1257,11 @@ def main():
 
     reveil = None
     if not serveur_sans_peripheriques:
-        reveil = WakeModel(wakeword_model_paths=[str(
-            Path(openwakeword.__file__).parent / "resources" / "models" / "hey_jarvis_v0.1.onnx"
-        )])
+        from core.wake import creer_reveil
+        reveil, _moteur_wake = creer_reveil(config.reglage("wake.moteur", "auto"),
+                                            config.reglage("wake.whisper_modele", "tiny"),
+                                            config.reglage("wake.vosk_modele", "vosk-model-small-fr-0.22"))
+        print(f"Mot d'activation : moteur {_moteur_wake}.")
 
     whisper = charger_whisper()
 
