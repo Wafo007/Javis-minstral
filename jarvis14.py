@@ -957,6 +957,31 @@ def capturer(flux, tampon, duree_min=0.6, attente_debut=None):
     return audio if len(audio) >= TAUX * duree_min else None
 
 
+def _apres_parole(flux, tampon):
+    """Apres que Jarvis a fini de parler : attend que l'echo des haut-parleurs retombe,
+    puis jette l'audio accumule pendant qu'il parlait. Sans ca, le micro enregistre la fin
+    de sa propre reponse comme si c'etait une nouvelle question."""
+    time.sleep(float(config.reglage("assistant.delai_apres_parole", 0.8)))
+    try:
+        for _ in range(50):
+            dispo = int(flux.read_available)
+            if dispo <= 0:
+                break
+            flux.read(dispo)
+    except Exception:
+        pass
+    tampon.clear()
+    try:
+        reveil_global = _REVEIL_COURANT[0]
+        if reveil_global is not None:
+            reveil_global.reset()
+    except Exception:
+        pass
+
+
+_REVEIL_COURANT = [None]
+
+
 def attendre_suite(flux, tampon, duree=DUREE_SUITE):
     """Ecoute quelques secondes apres une reponse, sans mot d'activation.
 
@@ -1011,6 +1036,13 @@ def repondre_en_ecoutant(historique, flux, reveil, whisper):
     blocs_requis = int(config.reglage("interruption.blocs", BLOCS_AVANT_VERIF))
     debug = bool(config.reglage("interruption.debug", False))
 
+    # Sans annulation d'echo, le micro entend la voix de Jarvis : le wake word Vosk/Whisper
+    # s'y declenche a tort et le coupe en pleine phrase. On ne l'utilise donc pour
+    # l'interruption qu'avec openWakeWord (ou si assistant.interruption_par_wake: true).
+    _pref = config.reglage("assistant.interruption_par_wake", None)
+    wake_actif = (getattr(reveil, "nom_moteur", "openwakeword") == "openwakeword"
+                  if _pref is None else bool(_pref))
+
     base = None            # niveau moyen de l'echo de Jarvis (suivi en continu)
     tampon = []            # audio de TA parole par-dessus
     blocs_sur = 0
@@ -1042,7 +1074,10 @@ def repondre_en_ecoutant(historique, flux, reveil, whisper):
             continue
 
         # voie 1 : le mot d'activation
-        scores = reveil.predict((bloc * 32767).astype(np.int16))
+        if wake_actif:
+            scores = reveil.predict((bloc * 32767).astype(np.int16))
+        else:
+            scores = {"jarvis": 0.0}
         if max(scores.values()) >= SEUIL_INTERRUPTION:
             couper_parole()
             interrompu, relancer = True, True
@@ -1082,7 +1117,7 @@ def repondre_en_ecoutant(historique, flux, reveil, whisper):
             if debug:
                 print(f"  [micro debug] niv={niv:.3f} base={base:.3f} "
                       f"seuil={seuil_sur:.3f} -> entendu={dit!r}")
-            categorie = type_arret(dit) if dit else None
+            categorie = type_arret(dit) if dit and len(dit.split()) <= 4 else None
             if categorie:
                 couper_parole()
                 interrompu = True
@@ -1262,6 +1297,7 @@ def main():
                                             config.reglage("wake.whisper_modele", "tiny"),
                                             config.reglage("wake.vosk_modele", "vosk-model-small-fr-0.22"))
         print(f"Mot d'activation : moteur {_moteur_wake}.")
+        _REVEIL_COURANT[0] = reveil
 
     whisper = charger_whisper()
 
@@ -1498,6 +1534,7 @@ def main():
                 enchainer = True
                 continue
 
+            _apres_parole(flux, tampon)
             print(f"  [micro] J'ecoute encore {int(DUREE_SUITE)} s...")
             enchainer = attendre_suite(flux, tampon)
             if not enchainer:

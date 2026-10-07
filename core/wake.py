@@ -184,12 +184,14 @@ def creer_reveil(moteur: str = "auto", modele_whisper: str = "tiny", modele_vosk
             if nom == "openwakeword":
                 import openwakeword
                 from openwakeword.model import Model
-                return Model(wakeword_model_paths=[str(
-                    Path(openwakeword.__file__).parent / "resources" / "models" / "hey_jarvis_v0.1.onnx")]), nom
-            if nom == "vosk":
-                return WakeVosk(modele_vosk), nom
-            if nom == "whisper":
-                return WakeWhisper(modele_whisper), nom
+                obj = Model(wakeword_model_paths=[str(
+                    Path(openwakeword.__file__).parent / "resources" / "models" / "hey_jarvis_v0.1.onnx")])
+                obj.nom_moteur = nom
+                return obj, nom
+            if nom in ("vosk", "whisper"):
+                obj = WakeVosk(modele_vosk) if nom == "vosk" else WakeWhisper(modele_whisper)
+                obj.nom_moteur = nom
+                return obj, nom
             raise ValueError(f"wake.moteur inconnu : {nom}")
         except Exception as e:                       # ImportError/OSError DLL, modele absent...
             erreurs.append(f"{nom}: {type(e).__name__}: {e}")
