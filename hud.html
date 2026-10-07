@@ -1,0 +1,935 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>JARVIS · Reacteur arc</title>
+<style>
+  :root {
+    --fond: #04070a;
+    --texte: #9fb6c0;
+    --texte-faible: #4c626d;
+    --vous: #6fe3ff;
+    --jarvis: #ffb23e;
+    --mono: "Consolas", "SF Mono", "Menlo", "DejaVu Sans Mono", monospace;
+  }
+
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+
+  html, body {
+    height: 100%;
+    overflow: hidden;
+    background: var(--fond);
+    color: var(--texte);
+    font-family: var(--mono);
+  }
+
+  /* Halo radial tres sombre derriere le reacteur. */
+  #scene {
+    position: fixed;
+    inset: 0;
+    background:
+      radial-gradient(circle at 50% 46%, rgba(20,60,80,0.10), transparent 55%),
+      radial-gradient(circle at 50% 120%, rgba(10,30,45,0.25), transparent 60%),
+      var(--fond);
+  }
+
+  #reacteur {
+    position: absolute;
+    top: 50%; left: 50%;
+    transform: translate(-50%, -50%);
+    width: min(72vmin, 640px);
+    height: min(72vmin, 640px);
+  }
+
+  /* --- releve d'etat, en haut a gauche --- */
+  .releve {
+    position: fixed;
+    top: 34px; left: 40px;
+    font-size: 11px;
+    letter-spacing: 3px;
+    text-transform: uppercase;
+    line-height: 2.1;
+    color: var(--texte-faible);
+    user-select: none;
+  }
+  .releve .champ { display: flex; gap: 12px; align-items: center; }
+  .releve .cle { width: 74px; color: var(--texte-faible); }
+  .releve .val { color: var(--texte); }
+  .releve .val.actif { color: var(--vous); text-shadow: 0 0 10px rgba(111,227,255,0.5); }
+
+  /* petite pastille systeme */
+  .pastille {
+    display: inline-block;
+    width: 7px; height: 7px;
+    border-radius: 50%;
+    background: #d24b4b;
+    box-shadow: 0 0 8px #d24b4b;
+  }
+  .pastille.enligne { background: #52e0a0; box-shadow: 0 0 8px #52e0a0; }
+
+  /* jauge de niveau */
+  .jauge {
+    width: 120px; height: 6px;
+    border: 1px solid rgba(120,150,165,0.35);
+    position: relative;
+    overflow: hidden;
+  }
+  .jauge > i {
+    position: absolute; inset: 0;
+    width: 0%;
+    background: linear-gradient(90deg, rgba(111,227,255,0.2), var(--vous));
+    box-shadow: 0 0 12px rgba(111,227,255,0.6);
+    transition: width 0.08s linear;
+  }
+
+  /* --- horloge, en haut a droite --- */
+  .horloge {
+    position: fixed;
+    top: 30px; right: 42px;
+    text-align: right;
+    user-select: none;
+  }
+  .horloge .heure {
+    font-size: 30px;
+    letter-spacing: 6px;
+    color: var(--texte);
+    text-shadow: 0 0 14px rgba(120,180,200,0.25);
+  }
+  .horloge .date {
+    font-size: 11px;
+    letter-spacing: 3px;
+    text-transform: uppercase;
+    color: var(--texte-faible);
+    margin-top: 6px;
+  }
+
+  /* --- etiquette d'etat sous le reacteur --- */
+  .etiquette-etat {
+    position: fixed;
+    left: 50%;
+    top: calc(50% + min(38vmin, 340px));
+    transform: translate(-50%, -50%);
+    font-size: 13px;
+    letter-spacing: 8px;
+    text-transform: uppercase;
+    color: var(--vous);
+    text-shadow: 0 0 16px currentColor;
+    user-select: none;
+    transition: color 0.4s ease;
+  }
+
+  /* --- transcription, en bas --- */
+  .transcription {
+    position: fixed;
+    left: 50%;
+    bottom: 26px;
+    transform: translateX(-50%);
+    width: min(760px, 84vw);
+    max-height: 210px;
+    display: flex;
+    flex-direction: column;
+    justify-content: flex-end;
+    gap: 8px;
+    overflow: hidden;
+    -webkit-mask-image: linear-gradient(180deg, transparent, #000 34%);
+            mask-image: linear-gradient(180deg, transparent, #000 34%);
+  }
+  .ligne {
+    font-size: 13.5px;
+    letter-spacing: 0.4px;
+    line-height: 1.4;
+    opacity: 0;
+    transform: translateY(6px);
+    animation: entree 0.35s ease forwards;
+  }
+  @keyframes entree { to { opacity: 1; transform: none; } }
+
+  .ligne .qui {
+    font-size: 9.5px;
+    letter-spacing: 2.5px;
+    text-transform: uppercase;
+    color: var(--texte-faible);
+    display: block;
+    margin-bottom: 1px;
+  }
+  .ligne.vous { text-align: left; color: var(--vous); }
+  .ligne.vous .qui { color: rgba(111,227,255,0.55); }
+  .ligne.jarvis { text-align: right; color: var(--jarvis); }
+  .ligne.jarvis .qui { color: rgba(255,178,62,0.55); }
+  .ligne.outil {
+    text-align: center;
+    font-size: 10.5px;
+    letter-spacing: 2px;
+    text-transform: uppercase;
+    color: var(--texte-faible);
+  }
+  .ligne.outil b { color: #8aa2ad; font-weight: 600; }
+
+  /* --- equerres de coin facon HUD --- */
+  .coin {
+    position: fixed;
+    width: 26px; height: 26px;
+    border: 2px solid rgba(120,160,180,0.35);
+    pointer-events: none;
+  }
+  .coin.hg { top: 20px; left: 22px; border-right: none; border-bottom: none; }
+  .coin.hd { top: 20px; right: 22px; border-left: none; border-bottom: none; }
+  .coin.bg { bottom: 20px; left: 22px; border-right: none; border-top: none; }
+  .coin.bd { bottom: 20px; right: 22px; border-left: none; border-top: none; }
+
+  /* --- controles rapides : discrets tant que le tiroir est ferme --- */
+  .controle-bouton {
+    position: fixed;
+    right: 42px; top: 112px;
+    z-index: 21;
+    border: 1px solid rgba(111,227,255,0.25);
+    background: rgba(4,12,17,0.72);
+    color: var(--texte-faible);
+    padding: 8px 12px;
+    font: 10px var(--mono);
+    letter-spacing: 2px;
+    text-transform: uppercase;
+    cursor: pointer;
+    transition: color .2s, border-color .2s, box-shadow .2s;
+  }
+  .controle-bouton:hover, .controle-bouton[aria-expanded="true"] {
+    color: var(--vous);
+    border-color: rgba(111,227,255,0.65);
+    box-shadow: 0 0 16px rgba(111,227,255,0.10);
+  }
+  .controle-tiroir {
+    position: fixed;
+    z-index: 20;
+    top: 96px; right: 24px; bottom: 24px;
+    width: min(390px, calc(100vw - 48px));
+    overflow-x: hidden;
+    overflow-y: auto;
+    padding: 62px 22px 22px;
+    border: 1px solid rgba(111,227,255,0.20);
+    background: linear-gradient(145deg, rgba(7,18,24,0.97), rgba(3,8,12,0.97));
+    box-shadow: -18px 0 60px rgba(0,0,0,0.55), inset 0 0 42px rgba(111,227,255,0.025);
+    transform: translateX(calc(100% + 40px));
+    opacity: 0;
+    pointer-events: none;
+    transition: transform .28s ease, opacity .22s ease;
+  }
+  .controle-tiroir.ouvert { transform: none; opacity: 1; pointer-events: auto; }
+  .controle-tiroir h2 {
+    color: var(--vous); font-size: 13px; font-weight: 500;
+    letter-spacing: 4px; text-transform: uppercase; margin-bottom: 5px;
+  }
+  .controle-sous-titre { color: var(--texte-faible); font-size: 10px; line-height: 1.5; }
+  .controle-section { margin-top: 22px; padding-top: 16px; border-top: 1px solid rgba(111,227,255,.12); }
+  .controle-section h3 {
+    color: #78909b; font-size: 10px; font-weight: 500;
+    letter-spacing: 3px; text-transform: uppercase; margin-bottom: 11px;
+  }
+  .controle-label { display: block; margin: 11px 0 6px; color: var(--texte-faible); font-size: 10px; letter-spacing: 1px; }
+  .controle-ligne { display: flex; gap: 7px; align-items: center; }
+  .controle-ligne + .controle-ligne { margin-top: 8px; }
+  .controle-tiroir select, .controle-tiroir input {
+    width: 100%; max-width: 100%; min-width: 0; flex: 1; height: 34px; padding: 0 9px;
+    border: 1px solid rgba(120,160,180,.25);
+    background: rgba(1,6,9,.78); color: var(--texte);
+    font: 11px var(--mono); outline: none;
+  }
+  .controle-tiroir select:focus, .controle-tiroir input:focus { border-color: rgba(111,227,255,.65); }
+  .controle-action, .controle-mode {
+    height: 34px; padding: 0 11px;
+    border: 1px solid rgba(111,227,255,.28);
+    background: rgba(111,227,255,.055); color: #86a8b5;
+    font: 10px var(--mono); letter-spacing: 1px; text-transform: uppercase;
+    cursor: pointer;
+  }
+  .controle-action:hover, .controle-mode:hover, .controle-mode.actif {
+    color: var(--vous); border-color: rgba(111,227,255,.7);
+    box-shadow: inset 0 0 15px rgba(111,227,255,.07);
+  }
+  .controle-action:disabled { opacity: .35; cursor: wait; }
+  .controle-modes { display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px; }
+  .controle-statut { min-height: 30px; margin-top: 14px; color: var(--texte-faible); font-size: 10px; line-height: 1.5; }
+  .controle-statut.ok { color: #52e0a0; }
+  .controle-statut.ko { color: #ff7c7c; }
+  .controle-panneau {
+    display: block; margin-top: 20px; color: #6f9dac; font-size: 10px;
+    letter-spacing: 1px; text-decoration: none; text-transform: uppercase;
+  }
+  .controle-panneau:hover { color: var(--vous); }
+  @media (max-width: 700px) {
+    .controle-bouton { right: 28px; top: 104px; }
+    .controle-tiroir { top: 88px; right: 12px; bottom: 12px; width: calc(100vw - 24px); }
+  }
+</style>
+</head>
+<body>
+  <div id="scene"></div>
+  <canvas id="reacteur"></canvas>
+
+  <div class="etiquette-etat" id="etiquetteEtat">VEILLE</div>
+
+  <div class="releve">
+    <div class="champ"><span class="cle">Systeme</span>
+      <span class="val"><span class="pastille" id="pastille"></span>
+      <span id="vSysteme">Hors ligne</span></span></div>
+    <div class="champ"><span class="cle">Modele</span>
+      <span class="val" id="vModele">—</span></div>
+    <div class="champ"><span class="cle">Ecoute</span>
+      <span class="val" id="vEcoute">—</span></div>
+    <div class="champ"><span class="cle">Niveau</span>
+      <span class="jauge"><i id="vJauge"></i></span></div>
+    <div class="champ"><span class="cle">Routage</span>
+      <span class="val" id="vRoutage">—</span></div>
+    <div class="champ"><span class="cle">Budget</span>
+      <span class="val" id="vBudget">—</span></div>
+    <div class="champ"><span class="cle">Hermes</span>
+      <span class="val" id="vHermes">—</span></div>
+  </div>
+
+  <div id="bandeauConfirm" style="display:none;position:fixed;top:64px;left:50%;
+    transform:translateX(-50%);padding:8px 18px;border-radius:10px;z-index:9;
+    background:rgba(245,185,66,.14);border:1px solid rgba(245,185,66,.5);
+    color:#f5b942;font-size:14px;letter-spacing:.05em">⏳ En attente de confirmation…</div>
+  <div id="badgeMuet" style="display:none;position:fixed;top:16px;right:16px;z-index:9;
+    padding:5px 12px;border-radius:999px;background:rgba(255,107,107,.16);
+    border:1px solid rgba(255,107,107,.5);color:#ff8a8a;font-size:12px">🔇 Micro coupé</div>
+  <div id="badgeDemo" style="display:none;position:fixed;top:16px;left:16px;z-index:9;
+    padding:5px 12px;border-radius:8px;background:rgba(245,185,66,.16);
+    border:1px solid rgba(245,185,66,.6);color:#f5b942;font-size:12px;letter-spacing:.1em">
+    DÉMO — rien n'est réel</div>
+
+  <div class="horloge">
+    <div class="heure" id="vHeure">--:--:--</div>
+    <div class="date" id="vDate">—</div>
+  </div>
+
+  <button class="controle-bouton" id="ouvrirControle" type="button"
+    aria-controls="controleTiroir" aria-expanded="false">⚙ Config</button>
+  <aside class="controle-tiroir" id="controleTiroir" aria-hidden="true">
+    <h2>Commandes rapides</h2>
+    <p class="controle-sous-titre" id="controleActif">Chargement de la configuration…</p>
+
+    <section class="controle-section">
+      <h3>Mode de routage</h3>
+      <div class="controle-modes" id="controleModes">
+        <button class="controle-mode" type="button" data-mode="local">Local</button>
+        <button class="controle-mode" type="button" data-mode="hybride">Hybride</button>
+        <button class="controle-mode" type="button" data-mode="qualite">Qualité</button>
+      </div>
+    </section>
+
+    <section class="controle-section">
+      <h3>Profil cloud &amp; modèle</h3>
+      <label class="controle-label" for="controleFournisseur">Fournisseur</label>
+      <select id="controleFournisseur"></select>
+      <label class="controle-label" for="controleModeleCloud">Modèle</label>
+      <input id="controleModeleCloud" list="controleModelesCloud" autocomplete="off">
+      <datalist id="controleModelesCloud"></datalist>
+      <p class="controle-sous-titre">Hybride privilégie Luna chez OpenAI et Haiku chez Claude, sauf choix manuel.</p>
+      <div class="controle-ligne" style="margin-top:8px">
+        <button class="controle-action" type="button" id="activerHybride">Activer hybride</button>
+        <button class="controle-action" type="button" id="activerQualite">Activer qualité</button>
+      </div>
+    </section>
+
+    <section class="controle-section">
+      <h3>Modèle local</h3>
+      <div class="controle-ligne">
+        <select id="controleModeleLocal"></select>
+        <button class="controle-action" type="button" id="activerLocal">Activer</button>
+      </div>
+      <p class="controle-sous-titre" id="controleOllama"></p>
+    </section>
+
+    <section class="controle-section">
+      <h3>Voix</h3>
+      <label class="controle-label" for="controleMoteurVoix">Moteur TTS</label>
+      <select id="controleMoteurVoix"></select>
+      <label class="controle-label" for="controleVoixEleven">Voix ElevenLabs</label>
+      <select id="controleVoixEleven"></select>
+      <label class="controle-label" for="controleModeleEleven">Modèle ElevenLabs</label>
+      <div class="controle-ligne">
+        <select id="controleModeleEleven"></select>
+        <button class="controle-action" type="button" id="testerVoix">Tester</button>
+      </div>
+    </section>
+
+    <div class="controle-statut" id="controleStatut" role="status"></div>
+    <a class="controle-panneau" id="lienPanneau" href="#">Ouvrir le panneau complet →</a>
+  </aside>
+
+  <div class="transcription" id="transcription"></div>
+
+  <div class="coin hg"></div>
+  <div class="coin hd"></div>
+  <div class="coin bg"></div>
+  <div class="coin bd"></div>
+
+<script>
+"use strict";
+
+// ------------------------------------------------------------- etat courant
+
+const S = {
+  etat: "veille",
+  niveauCible: 0,
+  niveauLisse: 0,
+  modele: "—",
+  stt: "—",
+  enligne: false,
+  routage: "—",
+  budget: null,
+  hermes: null,
+  muet: false,
+};
+
+const LIBELLES = {
+  veille: "VEILLE",
+  ecoute: "ECOUTE",
+  reflexion: "REFLEXION",
+  parole: "PAROLE",
+  muet: "MICRO COUPE",
+};
+
+// Couleur dominante par etat : cyan sourd, cyan vif, bleu-violet, ambre.
+const COULEURS = {
+  veille:    { r: 42,  g: 112, b: 130 },
+  ecoute:    { r: 46,  g: 224, b: 255 },
+  reflexion: { r: 138, g: 108, b: 255 },
+  parole:    { r: 255, g: 176, b: 62  },
+  muet:      { r: 255, g: 107, b: 107 },
+};
+
+let couleur = Object.assign({}, COULEURS.veille);  // couleur affichee, lissee
+
+// ------------------------------------------------------------- utilitaires
+
+const $ = (id) => document.getElementById(id);
+const lerp = (a, b, t) => a + (b - a) * t;
+
+// ------------------------------------------------------------- controles rapides
+
+let CONTROLES = null;
+let controleEnCours = false;
+
+function optionSelect(select, valeur, texte, selectionne) {
+  const o = document.createElement("option");
+  o.value = String(valeur);
+  o.textContent = String(texte);
+  o.selected = Boolean(selectionne);
+  select.appendChild(o);
+}
+
+function remplirSelect(select, elements, valeur, libelle) {
+  select.replaceChildren();
+  for (const element of elements) {
+    const v = typeof element === "object" ? element.valeur : element;
+    const t = libelle ? libelle(element) : v;
+    optionSelect(select, v, t, String(v) === String(valeur));
+  }
+}
+
+function statutControle(texte, ok = null) {
+  const el = $("controleStatut");
+  el.textContent = texte || "";
+  el.classList.toggle("ok", ok === true);
+  el.classList.toggle("ko", ok === false);
+}
+
+function actualiserModelesCloud() {
+  if (!CONTROLES) return;
+  const fournisseur = $("controleFournisseur").value || "openai";
+  const profil = CONTROLES.mode === "qualite" ? "qualite" : "hybride";
+  const modeles = CONTROLES.cloud.modeles[fournisseur] || [];
+  const liste = $("controleModelesCloud");
+  liste.replaceChildren();
+  for (const modele of modeles) {
+    const o = document.createElement("option");
+    o.value = modele.nom;
+    o.label = modele.role || modele.nom;
+    liste.appendChild(o);
+  }
+  $("controleModeleCloud").value =
+    (CONTROLES.cloud.courants[fournisseur] || {})[profil] || (modeles[0] || {}).nom || "";
+}
+
+function afficherControles(d) {
+  CONTROLES = d;
+  $("controleActif").textContent = "Actif · " + (d.modele_actif || "inconnu");
+  document.querySelectorAll("#controleModes [data-mode]").forEach((b) =>
+    b.classList.toggle("actif", b.dataset.mode === d.mode));
+
+  const fournisseurs = ["openai", "anthropic"];
+  remplirSelect($("controleFournisseur"), fournisseurs, d.cloud.fournisseur, (f) => {
+    const nom = f === "openai" ? "OpenAI" : "Anthropic / Claude";
+    return nom + (d.cloud.configure[f] ? "" : " · clé absente");
+  });
+  actualiserModelesCloud();
+
+  const locaux = d.local.modeles.length ? d.local.modeles : [d.local.modele];
+  remplirSelect($("controleModeleLocal"), locaux, d.local.modele);
+  $("controleOllama").textContent = d.local.joignable
+    ? locaux.length + " modèle(s) Ollama disponible(s)"
+    : "Ollama est hors ligne";
+
+  const labelsMoteur = {auto:"Auto", elevenlabs:"ElevenLabs", piper:"Piper",
+    kokoro:"Kokoro", windows:"Windows"};
+  remplirSelect($("controleMoteurVoix"), d.voix.moteurs, d.voix.moteur,
+    (m) => labelsMoteur[m] || m);
+
+  const voix = d.voix.elevenlabs.voix || [];
+  $("controleVoixEleven").replaceChildren();
+  if (!voix.length) {
+    optionSelect($("controleVoixEleven"), d.voix.elevenlabs_voix || "",
+      d.voix.elevenlabs.configure ? "Aucune voix chargée" : "Clé ElevenLabs absente", true);
+  } else {
+    for (const v of voix) optionSelect($("controleVoixEleven"), v.id,
+      v.nom + (v.categorie ? " · " + v.categorie : ""), v.id === d.voix.elevenlabs_voix);
+  }
+  remplirSelect($("controleModeleEleven"), d.voix.modeles_elevenlabs,
+    d.voix.elevenlabs_modele);
+  $("lienPanneau").href = d.panneau_url;
+}
+
+async function chargerControles(silencieux = false) {
+  if (!silencieux) statutControle("Chargement…");
+  try {
+    const rep = await fetch("/api/controle", {cache: "no-store"});
+    const d = await rep.json();
+    if (!rep.ok || !d.ok) throw new Error(d.message || "Configuration indisponible");
+    afficherControles(d);
+    if (!silencieux) statutControle("");
+  } catch (e) {
+    statutControle(e.message || "Impossible de charger la configuration", false);
+  }
+}
+
+async function envoyerControle(donnees) {
+  if (controleEnCours) return;
+  controleEnCours = true;
+  document.querySelectorAll(".controle-action,.controle-mode").forEach((b) => b.disabled = true);
+  statutControle("Application…");
+  try {
+    const rep = await fetch("/api/controle", {
+      method: "POST",
+      headers: {"Content-Type": "application/json", "X-Jarvis-HUD": "1"},
+      body: JSON.stringify(donnees),
+    });
+    const d = await rep.json();
+    if (d.ok && donnees.action !== "tester_voix") await chargerControles(true);
+    statutControle(d.message || (d.ok ? "Appliqué" : "Échec"), Boolean(d.ok));
+  } catch (e) {
+    statutControle(e.message || "Commande impossible", false);
+  } finally {
+    controleEnCours = false;
+    document.querySelectorAll(".controle-action,.controle-mode").forEach((b) => b.disabled = false);
+  }
+}
+
+function ouvrirFermerControles(force) {
+  const tiroir = $("controleTiroir");
+  const ouvert = force === undefined ? !tiroir.classList.contains("ouvert") : Boolean(force);
+  tiroir.classList.toggle("ouvert", ouvert);
+  tiroir.setAttribute("aria-hidden", String(!ouvert));
+  $("ouvrirControle").setAttribute("aria-expanded", String(ouvert));
+  $("ouvrirControle").textContent = ouvert ? "× Fermer" : "⚙ Config";
+  if (ouvert) chargerControles();
+}
+
+function versCouleur(cible, t) {
+  couleur.r = lerp(couleur.r, cible.r, t);
+  couleur.g = lerp(couleur.g, cible.g, t);
+  couleur.b = lerp(couleur.b, cible.b, t);
+}
+function rgba(a) {
+  return `rgba(${couleur.r|0},${couleur.g|0},${couleur.b|0},${a})`;
+}
+
+function arrondi(ctx, x, y, w, h, r) {
+  if (ctx.roundRect) { ctx.beginPath(); ctx.roundRect(x, y, w, h, r); return; }
+  ctx.beginPath();
+  ctx.moveTo(x + r, y);
+  ctx.arcTo(x + w, y, x + w, y + h, r);
+  ctx.arcTo(x + w, y + h, x, y + h, r);
+  ctx.arcTo(x, y + h, x, y, r);
+  ctx.arcTo(x, y, x + w, y, r);
+  ctx.closePath();
+}
+
+// ------------------------------------------------------------- canvas
+
+const canvas = $("reacteur");
+const ctx = canvas.getContext("2d");
+let L = 0, H = 0;
+
+function redimensionner() {
+  const dpr = Math.min(window.devicePixelRatio || 1, 2);
+  L = canvas.clientWidth;
+  H = canvas.clientHeight;
+  canvas.width = Math.round(L * dpr);
+  canvas.height = Math.round(H * dpr);
+  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+}
+window.addEventListener("resize", redimensionner);
+
+const NB_BOBINES = 10;
+const NB_TICKS = 72;
+
+function dessiner(t) {
+  requestAnimationFrame(dessiner);
+
+  // Lissage de la couleur et du niveau.
+  versCouleur(COULEURS[S.etat] || COULEURS.veille, 0.05);
+  S.niveauLisse += (S.niveauCible - S.niveauLisse) * 0.15;
+  const niv = S.niveauLisse;
+
+  ctx.clearRect(0, 0, L, H);
+  const cx = L / 2, cy = H / 2;
+  const R = Math.min(L, H) * 0.46;
+
+  const respire = 0.5 + 0.5 * Math.sin(t * 0.0018);   // pulsation lente
+  const rotTicks = t * 0.00018;
+  const rotBobines = -t * 0.00007;
+  const rotTriangle = t * 0.00011;
+
+  ctx.lineCap = "round";
+
+  // --- halo exterieur diffus ---
+  const halo = ctx.createRadialGradient(cx, cy, R * 0.2, cx, cy, R * 1.15);
+  halo.addColorStop(0, rgba(0.10 + niv * 0.10));
+  halo.addColorStop(1, rgba(0));
+  ctx.fillStyle = halo;
+  ctx.beginPath();
+  ctx.arc(cx, cy, R * 1.15, 0, Math.PI * 2);
+  ctx.fill();
+
+  // --- anneaux concentriques ---
+  const anneaux = [1.0, 0.9, 0.62, 0.4];
+  anneaux.forEach((f, i) => {
+    ctx.beginPath();
+    ctx.arc(cx, cy, R * f, 0, Math.PI * 2);
+    ctx.strokeStyle = rgba(i === 0 ? 0.35 : 0.22);
+    ctx.lineWidth = i === 0 ? 2 : 1.2;
+    ctx.stroke();
+  });
+
+  // --- reticule de graduations qui tourne ---
+  ctx.save();
+  ctx.translate(cx, cy);
+  ctx.rotate(rotTicks);
+  for (let i = 0; i < NB_TICKS; i++) {
+    const a = (i / NB_TICKS) * Math.PI * 2;
+    const longue = (i % 6 === 0);
+    const r1 = R * 0.78;
+    const r2 = r1 + (longue ? 14 : 7);
+    ctx.beginPath();
+    ctx.moveTo(Math.cos(a) * r1, Math.sin(a) * r1);
+    ctx.lineTo(Math.cos(a) * r2, Math.sin(a) * r2);
+    ctx.strokeStyle = rgba(longue ? 0.7 : 0.28);
+    ctx.lineWidth = longue ? 1.8 : 1;
+    ctx.stroke();
+  }
+  ctx.restore();
+
+  // --- couronne de dix bobines ---
+  const rc = R * 0.52;
+  const bw = R * 0.13, bh = R * 0.2;
+  for (let i = 0; i < NB_BOBINES; i++) {
+    const a = (i / NB_BOBINES) * Math.PI * 2 + rotBobines;
+    const x = cx + Math.cos(a) * rc;
+    const y = cy + Math.sin(a) * rc;
+    ctx.save();
+    ctx.translate(x, y);
+    ctx.rotate(a + Math.PI / 2);
+    arrondi(ctx, -bw / 2, -bh / 2, bw, bh, 4);
+    ctx.fillStyle = rgba(0.08);
+    ctx.fill();
+    ctx.strokeStyle = rgba(0.6);
+    ctx.lineWidth = 1.4;
+    ctx.stroke();
+    // trait lumineux au coeur de la bobine
+    ctx.beginPath();
+    ctx.moveTo(0, -bh * 0.28);
+    ctx.lineTo(0, bh * 0.28);
+    ctx.strokeStyle = rgba(0.5 + 0.4 * respire);
+    ctx.lineWidth = 2.2;
+    ctx.stroke();
+    ctx.restore();
+  }
+
+  // --- triangle central ---
+  ctx.save();
+  ctx.translate(cx, cy);
+  ctx.rotate(rotTriangle);
+  const rt = R * 0.34;
+  ctx.beginPath();
+  for (let i = 0; i < 3; i++) {
+    const a = -Math.PI / 2 + i * (Math.PI * 2 / 3);
+    const x = Math.cos(a) * rt, y = Math.sin(a) * rt;
+    i ? ctx.lineTo(x, y) : ctx.moveTo(x, y);
+  }
+  ctx.closePath();
+  ctx.strokeStyle = rgba(0.55);
+  ctx.lineWidth = 2;
+  ctx.shadowColor = rgba(0.7);
+  ctx.shadowBlur = 12;
+  ctx.stroke();
+  ctx.restore();
+  ctx.shadowBlur = 0;
+
+  // --- coeur lumineux en degrade radial, enfle avec le niveau ---
+  const coeurR = R * (0.16 + niv * 0.17 + respire * 0.015);
+  const rayon = coeurR * 2.4;
+  const g = ctx.createRadialGradient(cx, cy, 0, cx, cy, rayon);
+  g.addColorStop(0, "rgba(255,255,255,0.95)");
+  g.addColorStop(0.22, rgba(0.95));
+  g.addColorStop(0.55, rgba(0.32));
+  g.addColorStop(1, rgba(0));
+  ctx.fillStyle = g;
+  ctx.beginPath();
+  ctx.arc(cx, cy, rayon, 0, Math.PI * 2);
+  ctx.fill();
+
+  // point blanc central
+  ctx.beginPath();
+  ctx.arc(cx, cy, coeurR * 0.34, 0, Math.PI * 2);
+  ctx.fillStyle = "rgba(255,255,255,0.9)";
+  ctx.fill();
+}
+
+// ------------------------------------------------------------- interface
+
+function fmtBudget(b) {
+  if (!b) return "—";
+  let s = (Number(b.cout) || 0).toFixed(2) + "$";
+  if (b.plafond) s += " / " + b.plafond + "$ (" + Math.round((b.pct || 0) * 100) + "%)";
+  return s;
+}
+function fmtHermes(h) {
+  if (!h) return "—";
+  const p = [];
+  if (h.taches > 0) p.push(h.taches + " tache" + (h.taches > 1 ? "s" : "") + " en cours");
+  if (h.tokens != null) p.push(Number(h.tokens).toLocaleString("fr-FR") + " tok/30j");
+  return p.length ? p.join(" · ") : "au repos";
+}
+
+function majReleve() {
+  $("vModele").textContent = S.modele || "—";
+  $("vEcoute").textContent = S.stt || "—";
+  $("vSysteme").textContent = S.enligne ? "En ligne" : "Hors ligne";
+  $("pastille").classList.toggle("enligne", S.enligne);
+  $("vRoutage").textContent = S.routage || "—";
+  $("vBudget").textContent = fmtBudget(S.budget);
+  $("vHermes").textContent = fmtHermes(S.hermes);
+  $("badgeMuet").style.display = S.muet ? "block" : "none";
+  // budget proche/au plafond : la ligne vire à l'ambre puis au rouge.
+  const pct = S.budget && S.budget.plafond ? (S.budget.pct || 0) : 0;
+  $("vBudget").style.color = pct >= 1 ? "#ff6b6b" : (pct >= 0.8 ? "#f5b942" : "");
+
+  const et = LIBELLES[S.etat] || S.etat.toUpperCase();
+  const eti = $("etiquetteEtat");
+  eti.textContent = et;
+  const c = COULEURS[S.etat] || COULEURS.veille;
+  eti.style.color = `rgb(${c.r},${c.g},${c.b})`;
+
+  // La valeur "ecoute" s'illumine quand on est en ecoute active.
+  $("vEcoute").classList.toggle("actif", S.etat === "ecoute");
+}
+
+function majNiveau() {
+  $("vJauge").style.width = Math.round(S.niveauLisse * 100) + "%";
+  requestAnimationFrame(majNiveau);
+}
+
+// transcription : on empile les lignes, on garde les dernieres.
+const fluxTexte = $("transcription");
+function ajouterLigne(html, classe) {
+  const div = document.createElement("div");
+  div.className = "ligne " + classe;
+  div.innerHTML = html;
+  fluxTexte.appendChild(div);
+  while (fluxTexte.children.length > 14) {
+    fluxTexte.removeChild(fluxTexte.firstChild);
+  }
+}
+function echap(s) {
+  return String(s).replace(/[&<>]/g, (c) =>
+    ({ "&": "&amp;", "<": "&lt;", ">": "&gt;" }[c]));
+}
+
+// ------------------------------------------------------------- horloge
+
+const JOURS = ["Dimanche", "Lundi", "Mardi", "Mercredi", "Jeudi",
+               "Vendredi", "Samedi"];
+const MOIS = ["Janvier", "Fevrier", "Mars", "Avril", "Mai", "Juin", "Juillet",
+              "Aout", "Septembre", "Octobre", "Novembre", "Decembre"];
+function majHorloge() {
+  const d = new Date();
+  const p = (n) => String(n).padStart(2, "0");
+  $("vHeure").textContent = `${p(d.getHours())}:${p(d.getMinutes())}:${p(d.getSeconds())}`;
+  $("vDate").textContent =
+    `${JOURS[d.getDay()]} ${d.getDate()} ${MOIS[d.getMonth()]} ${d.getFullYear()}`;
+}
+
+// ------------------------------------------------------------- evenements
+
+function appliquer(ev) {
+  switch (ev.t) {
+    case "etat":
+      S.etat = ev.v;
+      majReleve();
+      break;
+    case "niveau":
+      S.niveauCible = ev.v;
+      break;
+    case "config":
+      S.modele = ev.modele;
+      S.stt = ev.stt;
+      majReleve();
+      break;
+    case "vous":
+      ajouterLigne(`<span class="qui">Vous</span>${echap(ev.texte)}`, "vous");
+      break;
+    case "jarvis":
+      ajouterLigne(`<span class="qui">Jarvis</span>${echap(ev.texte)}`, "jarvis");
+      break;
+    case "outil":
+      ajouterLigne(
+        `⚙ <b>${echap(ev.nom)}</b>${ev.detail ? " · " + echap(ev.detail) : ""}`,
+        "outil");
+      break;
+    case "routage":
+      S.routage = ev.v;
+      majReleve();
+      break;
+    case "budget":
+      S.budget = { cout: ev.cout, plafond: ev.plafond, pct: ev.pct };
+      majReleve();
+      break;
+    case "hermes":
+      S.hermes = { taches: ev.taches, tokens: ev.tokens };
+      majReleve();
+      break;
+    case "confirmation":
+      $("bandeauConfirm").style.display = ev.v ? "block" : "none";
+      break;
+    case "micro":
+      S.muet = ev.v;
+      majReleve();
+      break;
+    case "demo":
+      $("badgeDemo").style.display = ev.v ? "block" : "none";
+      break;
+  }
+}
+
+// ------------------------------------------------------------- connexion SSE
+
+function connecter() {
+  let source;
+  try {
+    source = new EventSource("/flux");
+  } catch (e) {
+    S.enligne = false; majReleve();
+    return;
+  }
+  source.onopen = () => { S.enligne = true; majReleve(); };
+  source.onmessage = (e) => {
+    try { appliquer(JSON.parse(e.data)); } catch (err) {}
+  };
+  source.onerror = () => {
+    // EventSource se reconnecte tout seul ; on marque juste hors ligne.
+    S.enligne = false; majReleve();
+  };
+}
+
+// ------------------------------------------------------------- demonstration
+
+// Rejoue un scenario cote page, pour voir le rendu sans serveur quand la
+// page est ouverte directement (file://).
+function demonstration() {
+  S.enligne = true;
+  appliquer({ t: "config", modele: "qwen2.5:7b (demo)", stt: "whisper medium" });
+
+  const tours = [
+    ["allume la lumiere de la chambre", "allumer_lumiere", "chambre -> on",
+     "C'est fait, la chambre est allumee."],
+    ["mets le salon en bleu", "changer_couleur", "salon -> bleu",
+     "Voila, le salon passe en bleu."],
+    ["quelle heure est-il", "heure_et_date", "",
+     "Il est vingt-deux heures dix."],
+  ];
+
+  let i = 0, minuteurNiveau = 0;
+  function bruit(base, amp, vitesse) {
+    clearInterval(minuteurNiveau);
+    let k = 0;
+    minuteurNiveau = setInterval(() => {
+      k++;
+      S.niveauCible = Math.max(0, base + amp * Math.abs(Math.sin(k * vitesse)));
+    }, 50);
+  }
+
+  function tour() {
+    const [q, outilNom, detail, rep] = tours[i % tours.length];
+    i++;
+    appliquer({ t: "etat", v: "veille" });
+    bruit(0.05, 0.03, 0.15);
+    setTimeout(() => {
+      appliquer({ t: "etat", v: "ecoute" });
+      appliquer({ t: "vous", texte: q });
+      bruit(0.4, 0.35, 0.4);
+    }, 1400);
+    setTimeout(() => {
+      appliquer({ t: "etat", v: "reflexion" });
+      bruit(0.05, 0.02, 0.2);
+      if (outilNom) appliquer({ t: "outil", nom: outilNom, detail: detail });
+    }, 3600);
+    setTimeout(() => {
+      appliquer({ t: "etat", v: "parole" });
+      appliquer({ t: "jarvis", texte: rep });
+      bruit(0.3, 0.25, 0.6);
+    }, 4700);
+    setTimeout(() => { S.niveauCible = 0.05; tour(); }, 7200);
+  }
+  tour();
+}
+
+// ------------------------------------------------------------- demarrage
+
+redimensionner();
+majHorloge();
+majReleve();
+setInterval(majHorloge, 1000);
+requestAnimationFrame(dessiner);
+requestAnimationFrame(majNiveau);
+
+$("ouvrirControle").addEventListener("click", () => ouvrirFermerControles());
+$("controleFournisseur").addEventListener("change", actualiserModelesCloud);
+document.querySelectorAll("#controleModes [data-mode]").forEach((b) =>
+  b.addEventListener("click", () => envoyerControle({action:"mode", valeur:b.dataset.mode})));
+$("activerHybride").addEventListener("click", () => envoyerControle({
+  action:"modele_cloud", fournisseur:$("controleFournisseur").value,
+  modele:$("controleModeleCloud").value, profil:"hybride"}));
+$("activerQualite").addEventListener("click", () => envoyerControle({
+  action:"modele_cloud", fournisseur:$("controleFournisseur").value,
+  modele:$("controleModeleCloud").value, profil:"qualite"}));
+$("activerLocal").addEventListener("click", () => envoyerControle({
+  action:"modele_local", modele:$("controleModeleLocal").value}));
+$("controleMoteurVoix").addEventListener("change", (e) => envoyerControle({
+  action:"moteur_voix", valeur:e.target.value}));
+$("controleVoixEleven").addEventListener("change", (e) => envoyerControle({
+  action:"voix_elevenlabs", valeur:e.target.value}));
+$("controleModeleEleven").addEventListener("change", (e) => envoyerControle({
+  action:"modele_elevenlabs", valeur:e.target.value}));
+$("testerVoix").addEventListener("click", () => envoyerControle({action:"tester_voix"}));
+document.addEventListener("keydown", (e) => { if (e.key === "Escape") ouvrirFermerControles(false); });
+
+if (location.protocol === "file:") {
+  demonstration();
+} else {
+  connecter();
+}
+</script>
+</body>
+</html>

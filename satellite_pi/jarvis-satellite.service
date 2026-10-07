@@ -1,0 +1,15 @@
+[Unit]
+Description=Satellite vocal Jarvis
+After=network-online.target sound.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+WorkingDirectory=%h/satellite_pi
+ExecStart=%h/satellite_pi/.venv/bin/python -u %h/satellite_pi/jarvis_satellite.py
+Restart=always
+RestartSec=3
+Environment=PYTHONUNBUFFERED=1
+
+[Install]
+WantedBy=default.target

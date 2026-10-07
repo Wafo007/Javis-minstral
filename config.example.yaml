@@ -1,0 +1,528 @@
+# Configuration de Jarvis — copie ce fichier en config.yaml et mets tes valeurs.
+# config.yaml n'est PAS versionne (voir .gitignore) : tes secrets restent chez toi.
+
+mode: hybride                  # local | hybride | qualite  (voir docs/costs.md)
+                               #  local   = tout local (Ollama + Piper), rien ne sort
+                               #  hybride = DEFAUT : modele quotidien economique du fournisseur ;
+                               #            taches de fond confiees a Hermes
+                               #  qualite = profil le plus puissant du meme fournisseur
+                               # (l'ancien "cloud" reste accepte = hybride)
+
+cloud:
+  fournisseur: mistral         # mistral | openai | anthropic (Claude)
+                               # Mistral Free est le profil recommande pour une petite machine.
+
+mistral:
+  cle: ""                    # https://console.mistral.ai/ -> API keys
+  modele: "mistral-small-latest"       # mode hybride : quotidien + function calling
+  modele_qualite: "mistral-large-latest" # mode qualite (selon disponibilite du compte)
+  base_url: "https://api.mistral.ai/v1"
+  max_tokens: 1024
+  temperature: 0.3
+  timeout: 90
+  max_retries: 1
+
+openai:
+  cle: "sk-proj-..."           # cle API Platform ; l'abonnement ChatGPT ne la remplace pas
+  modele: "gpt-5.6-luna"       # mode hybride : choix quotidien economique recommande
+  modele_qualite: "gpt-6-astra" # mode qualite : flagship GPT-6
+  raisonnement: low            # none|low|medium|high|xhigh|max (selon le modele)
+  raisonnement_qualite: high
+  max_output_tokens: 2048       # inclut les tokens de raisonnement
+  timeout: 90                  # secondes max par appel
+  max_retries: 1
+
+astra_pc:                      # operateur Windows local, declenche a la voix
+  actif: true
+  modele: "gpt-6-astra"
+  max_actions: 12             # arret automatique anti-boucle
+  timeout: 90                 # secondes ; Echap arrete immediatement
+
+ollama:                        # mode local : modele de langage local (http://localhost:11434)
+  hote: "http://localhost:11434"
+  modele: "qwen3.5:4b"         # famille qwen3.5 (teste, bon en function calling + vision).
+                               # ~6-8 Go VRAM: 4b ; plus de VRAM: 9b/27b ; peu: 2b.
+                               # Voir ollama.com/library ; "python scripts/doctor.py" conseille selon ta VRAM.
+                               # Ollama recent requis (le tool-calling qwen3.5 buggait sur d'anciennes versions).
+  think: false                 # false = pas de "raisonnement" natif : indispensable pour la latence et les
+                               # appels d'outils (sinon tres lent / rendus en texte). Laisse false.
+
+voix_locale: piper             # mode local : "piper" (recommande FR) ou "kokoro"
+
+piper:                         # mode local : voix francaise Piper (voir docs/local.md)
+  modele: ""                   # chemin d'un .onnx ; vide = 1er trouve dans voix/
+
+kokoro:                        # TTS local alternatif (voix FR unique ; uv add kokoro-onnx)
+  modele: ""                   # chemin de kokoro-v1.0.onnx
+  voix: ""                     # chemin de voices-v1.0.bin
+  voix_nom: "ff_siwis"         # voix francaise de Kokoro
+
+anthropic:                     # fournisseur Claude / Anthropic alternatif
+  cle: "sk-ant-..."            # https://console.anthropic.com/ , section API keys
+  modele: "claude-haiku-4-5"          # mode hybride : modele economique (reflexes + vision)
+  modele_qualite: "claude-sonnet-4-5" # mode qualite : modele le plus fort
+
+elevenlabs:                    # facultatif ; sans cle, Jarvis garde la voix Windows
+  cle: ""                      # https://elevenlabs.io , profil -> API key (commence par sk_)
+  voix: ""                     # ID d'une voix (onglet Voices) ; vide = 1re du compte
+  modele: "eleven_flash_v2_5"
+  langue: "fr"                 # force la langue (flash/turbo v2.5) : bonne prononciation des accents
+
+tts:
+  moteur: auto                 # auto | elevenlabs | piper | kokoro | windows
+                               # auto = ElevenLabs en cloud, Piper/Kokoro en local
+
+hue:                           # Philips Hue, API locale
+  pont: "192.168.1.XXX"        # adresse du pont sur ton reseau
+  cle: "ta-cle-hue"            # cle generee via le bouton du pont
+
+mail:                          # Gmail via IMAP/SMTP (facultatif)
+  adresse: "ton.adresse@gmail.com"
+  mot_de_passe_app: ""         # mot de passe d'application Google (2FA requise)
+
+colis:                          # suivi de colis lu dans les objets des mails (local, lecture seule)
+  dans_brief: true              # ajoute « Côté colis : ... » au brief s'il y a un envoi en cours
+  jours: 10                     # profondeur de recherche dans la boite (1 a 30 jours)
+
+audio:
+  micro: null                  # null = micro par défaut du système (portable). Mets l'index de TON micro (voir sounddevice.query_devices()) si le wake word n'écoute pas le bon.
+  taux: null                   # taux de capture Hz ; null = auto (16 kHz si le micro le supporte, sinon son
+                               #   taux natif ex. 48000, rééchantillonné en 16 kHz). Force-le si la capture échoue.
+  haut_parleur: null           # null = sortie par defaut de Windows (changeable a la voix)
+  sorties:                     # alias pour "passe sur le casque / les enceintes" (nom ou index)
+    casque: "Casque"           # sous-chaine du nom de l'appareil de sortie (ou un index)
+    enceintes: "Haut-parleurs"
+  raccourci_mute: "ctrl+alt+m" # raccourci clavier global : couper/reactiver le wake word ("" = off)
+
+whisper:
+  modele: "small"                 # recommandé CPU/8 Go ; medium consomme beaucoup plus de RAM
+
+stt:                            # moteur de reconnaissance vocale (voir core/transcription.py)
+  moteur: "auto"                # auto : Whisper local, sinon OpenAI | local : jamais de cloud | openai : toujours OpenAI
+                                # le cloud n'est jamais utilise en mode local ; l'audio de la phrase part alors chez OpenAI
+  modele_cloud: "gpt-4o-mini-transcribe"   # modele de transcription OpenAI (repli, ex. Windows ARM64)
+
+interruption:                  # couper Jarvis quand tu dis "attends/stop/arrete" par-dessus
+  facteur: 1.8                 # tu dois parler ~1.8x plus fort que l'echo de Jarvis (baisse si ca ne coupe pas)
+  seuil: 0.025                 # niveau minimum absolu de ta voix (baisse si micro peu sensible)
+  blocs: 5                     # blocs de 80 ms de parole continue avant de verifier (5 = 0,4 s)
+  debug: false                 # true = affiche niv/base/seuil + ce qu'il entend (pour calibrer)
+
+assistant:
+  duree_suite: 10              # secondes d'ecoute apres une reponse
+  arbitrage_micro: true        # plusieurs micros entendent Hey Jarvis : seul le meilleur score repond
+  arbitrage_fenetre: 0.18      # secondes laissees aux micros pour comparer leur detection
+  arbitrage_verrou: 4.0        # evite une seconde reponse au meme wake word
+  priorite_micro: 1.0          # multiplicateur du micro principal (laisser 1.0 normalement)
+  piece_nuit: "chambre"        # piece allumee au demarrage s'il fait nuit ("" pour desactiver)
+  personnalite: "jarvis_sarcastique"   # jarvis_sarcastique | neutre | concis
+                               # (modifiable a la voix : "passe en mode neutre")
+  scene_extinction: "off"      # scene lumieres jouee AVANT d'eteindre le PC ("eteins le PC")
+  delai_extinction: 30         # secondes avant l'arret (annulable : "annule l'extinction")
+  seuil_reveil: 0.5            # sensibilite du mot d'activation (0.3 = facile, 0.7 = strict)
+  seuil_interruption: 0.7      # sensibilite pour couper Jarvis pendant qu'il parle (plus haut = plus strict)
+  # Seuils de NIVEAU (RMS) : dependent du gain du micro. Par defaut AUTO-CALIBRES
+  # au demarrage selon le bruit ambiant. Decommente pour figer une valeur (ca
+  # desactive l'auto-calibration pour ce seuil).
+  auto_calibration: true       # mesure le bruit ambiant ~1 s au lancement et pose les seuils au-dessus
+  # seuil_silence: 0.010       # en-dessous = silence (fin de phrase). Baisse si micro peu sensible
+  # seuil_parole: 0.025        # au-dessus = parole sure (reprise sans wake word)
+  silence_fin: 1.2             # secondes de silence avant de considerer la phrase finie
+  duree_max: 20                # duree max d'un enregistrement (secondes)
+  attente_confirmation: 3.0    # secondes laissees pour repondre oui/non a une confirmation
+  max_tours_outils: 6           # anti-boucle : nb max de cycles LLM -> outils par demande
+  max_appels_outils: 12         # anti-emballement si le modele appelle plusieurs outils a la fois
+  timeout_tour: 120             # duree totale max d'une demande, hors taches Hermes en fond
+
+obs:                           # OBS Studio 28+ -> Outils -> Parametres du serveur WebSocket
+  host: "localhost"
+  port: 4455
+  mot_de_passe: ""             # le mot de passe du serveur WebSocket OBS
+
+apps:                          # applications/jeux lancables par la voix ("lance Borderlands")
+  spotify: "spotify:"
+  # borderlands: "C:\\Program Files\\...\\Borderlands.exe"
+  # un_jeu_steam: "steam://rungameid/1234560"
+  # obs: "C:\\Program Files\\obs-studio\\bin\\64bit\\obs64.exe"
+
+utilisateur:                   # tes infos pour les reservations (JAMAIS de mot de passe ici)
+  nom: ""                      # ton nom complet
+  telephone: ""                # ton numero de rappel
+  email: ""                    # ton email
+
+reservation:                   # reservation web (Playwright ; voir docs/reservation.md)
+  navigateur_visible: true     # true = fenetre visible (recommande, tu vois ce qu'il fait)
+  navigateur_canal: "chrome"   # "chrome" = ton Chrome systeme (stable) ; "" = Chromium de Playwright
+  profil: ".profil_reservation"   # dossier du profil navigateur persistant (reste connecte)
+  max_etapes: 22               # nb max d'actions avant d'abandonner proprement
+  # modele: "claude-haiku-4-5" # modele pour la boucle vision (defaut = anthropic.modele)
+  sites:                       # raccourcis : "reserve chez X sur thefork"
+    thefork: "https://www.thefork.fr/"
+    doctolib: "https://www.doctolib.fr/"
+
+twilio:                        # appels telephoniques (voir docs/appels.md)
+  account_sid: ""              # console.twilio.com (Account SID, commence par AC...)
+  auth_token: ""               # console.twilio.com (Auth Token)
+  numero: ""                   # ton numero Twilio au format +33... (from)
+  # V2 (conversation temps reel) : le webhook Twilio (WebSocket /stream) passe par le
+  # serveur unifie. L'URL publique et ngrok se configurent dans la section "serveur".
+
+appels:
+  actif: true
+  simulation: false            # true = mode TEST : "fait comme si" l'appel etait passe (aucun vrai appel)
+  duree_max_message: 30        # V1 : secondes max d'enregistrement de la reponse
+  cout_par_minute: 0.11        # estimation EUR/min (ajuste selon les tarifs Twilio)
+  dossier: "logs/calls"        # transcriptions + compteur (gitignore)
+  # prefixes_interdits: ["089","3","118","10"]   # numeros surtaxes bloques (defaut fourni)
+  # --- V2 (conversation temps reel) ---
+  # port_stream : plus utilise -> le serveur unifie ecoute sur serveur.port
+  seuil_voix: 400             # seuil RMS de detection de parole (baisse si peu sensible)
+  silence_fin_ms: 700         # silence (ms) marquant la fin d'une phrase de l'interlocuteur
+  duree_max_appel: 180        # duree max d'un appel V2 (secondes)
+
+agenda:                        # Google Agenda, API officielle OAuth2 (voir docs/agenda.md)
+  credentials: "google_credentials.json"  # identifiants OAuth telecharges (Google Cloud Console)
+  token: "google_token.json"     # cree tout seul au 1er lancement (non versionne)
+  calendrier_principal: "primary"  # agenda ou creer/supprimer les evenements
+  calendriers: []                # noms (ou ids) des agendas a LIRE ; vide = tous.
+                                 # Pour lister les tiens : uv run python -m tools.agenda
+
+loopstr:                        # echeances de partenariats via flux iCal (voir docs/agenda.md)
+  url: ""                       # URL du flux iCal Loopstr (donnees perso, non exposees via MCP)
+
+serveur:                       # UN serveur web pour TOUT (pont iPhone + webhook Twilio V2 + futures PWA)
+  actif: false                 # true = lance le serveur au demarrage (requis pour le pont iPhone)
+  port: 8790                   # port local unique ; UN seul tunnel ngrok le sert en entier
+  # -- Deux facons d'exposer le port (choisis-en UNE) --
+  # A) Jarvis ouvre le tunnel tout seul (pas besoin d'installer la commande ngrok) :
+  ngrok_authtoken: ""          # ton authtoken (dashboard.ngrok.com)
+  ngrok_domaine: ""            # ton domaine statique SANS https:// (ex. mon-truc.ngrok-free.app) ; vide = URL aleatoire
+  # B) Tu lances ngrok toi-meme (CLI) : renseigne public_url et laisse authtoken/domaine vides
+  public_url: ""               # ex. "https://mon-truc.ngrok.app"
+
+pont_iphone:                   # notes/commandes depuis l'iPhone (Raccourcis) ; voir docs/iphone.md
+  token: ""                    # SECRET : en-tete X-Jarvis-Token (genere une longue chaine aleatoire)
+
+navigateur:                    # assistance sur TON Chrome (voir docs/navigateur.md)
+  prefere: "firefox"           # pages ouvertes par Jarvis : firefox (si installe) | systeme (navigateur par defaut)
+                               # avec firefox, Jarvis ne lance jamais Chrome lui-meme : lire ou agir sur
+                               # une page reste possible dans le raccourci "Chrome + Jarvis" deja ouvert
+  firefox_exe: ""              # chemin de firefox.exe si installe hors des emplacements standards
+  cdp_port: 9222               # port de debug (raccourci "Chrome + Jarvis")
+  domaines_proteges:           # sites ou Jarvis LIT mais n'AGIT jamais (fais-le toi-meme)
+    - "impots.gouv.fr"
+    - "ameli.fr"
+    - "labanquepostale.fr"
+    - "boursorama.com"
+    - "credit-agricole.fr"
+    - "paypal.com"
+    - "facture.net"              # facturation : lecture seule (outil factures_statut)
+    # ajoute tes banques / sites sante / administration
+
+factures:                      # statut de facturation (facture.net) — LECTURE SEULE via ChromeJarvis
+  url: ""                      # URL de TON tableau de bord facture.net (copie-la depuis
+                               # ChromeJarvis une fois connecte : "https://www.facture.net/...")
+
+mcp:                           # serveur MCP (expose les outils domotique/PC ; voir docs/mcp.md)
+  transport: "stdio"           # "stdio" (clients desktop) ou "http" (client distant)
+  host: "127.0.0.1"            # (transport http)
+  port: 8765                   # (transport http)
+
+instagram:                     # analyse Instagram vs la veille (API Graph ; voir docs/instagram.md)
+  version_api: "v21.0"
+  dossier: "logs/instagram"    # instantanes quotidiens (local, non versionne)
+  comptes:                     # un ou plusieurs comptes ; chacun son token + son id
+    - nom: "principal"         # nom parlant (tu peux dire "le insta principal")
+      user_id: ""              # ID du compte Instagram Business
+      access_token: ""         # token de CE compte
+    - nom: "secondaire"
+      user_id: ""
+      access_token: ""
+
+discord:                       # bot Discord (resume des mentions + messages du jour)
+  token: ""                    # token du bot (portail dev Discord ; active "Message Content Intent")
+  user_id: ""                  # TON identifiant Discord (mode dev -> clic droit sur ton nom -> Copier l'ID)
+
+presence:                      # detection de presence (ping de l'iPhone sur le wifi)
+  actif: true
+  ip: ""                       # IP FIXE de ton iPhone sur le reseau (vide = desactive)
+  intervalle: 60               # secondes entre deux pings
+  seuil_absence: 600           # secondes d'absence avant "mode off" (600 = 10 min)
+  mode_absence: "off"          # mode active quand tu pars
+  mode_retour: "retour"        # mode active a ton retour ("" pour desactiver)
+
+scenes:                        # scenes composites (musique + lumieres + voix + OBS + PC)
+  au_demarrage_actif: true     # jouer la scene du matin au 1er lancement du jour
+  brief_complet: true          # true = brief complet au demarrage (meteo+mails+deadlines) ; false = accueil court (meteo+1er rdv)
+  spotify: true                # lancer Spotify + play au demarrage
+  spotify_app: "spotify"       # appli a ouvrir (nom pour ouvrir_application)
+  spotify_delai: 4.0           # secondes avant d'envoyer "play" (le temps que Spotify ouvre)
+  lumieres:                    # mode lumieres a jouer selon l'heure ("" = ne rien faire)
+    matin: "retour"            # 6h-11h
+    jour: ""                   # 11h-18h : rien (plein jour)
+    soir: "retour"             # 18h-23h
+  brief_fichier: ""            # chemin d'un brief Hermes du matin (vocalise si present + du jour) ; "" = accueil local
+  # prenom_utilisateur: "..."  # pour personnaliser l'accueil ("Bonjour <prenom>")
+
+# modes: ambiances lumineuses. Presets integres : off, retour, film, stream.
+# Redefinis-les ou ajoute les tiens ici (voir scenes.example.yaml pour des exemples) :
+# modes:
+#   film:
+#     - {piece: "toutes", eteindre: true}
+#     - {piece: "salon", couleur: "orange", luminosite: 15}
+#   gaming:
+#     - {piece: "salon", couleur: "bleu", luminosite: 60}
+
+hermes:                        # delegation a Hermes Agent (facultatif ; voir docs/hermes.md)
+  api_url: "http://127.0.0.1:8642"   # API locale d'Hermes (gateway, loopback uniquement)
+  api_key: ""                        # cle du serveur API d'Hermes (= API_SERVER_KEY de son .env)
+  # api_key_file: ""                 # alternative : chemin d'un fichier contenant la cle
+  session: "jarvis-delegation"       # repli ; Jarvis genere sinon une session unique par delegation
+  modele_facturation: ""              # si l'API ne renvoie pas le modele : ex. "opus" pour estimer le cout
+  timeout: 900                       # secondes max d'une delegation (une recherche de fond peut durer)
+  resume_max: 500                    # longueur max du resume lu a voix haute (filtre de confidentialite)
+  journaliser: true                  # false = ne conserve pas les resultats complets dans logs/hermes
+  retention_jours: 30               # purge automatique des journaux/taches plus anciens ; 0 = illimite
+
+integrations:                  # chemins des projets externes (hub de contenu ; voir docs/hub_contenu.md)
+  vault: "C:/Users/TON-NOM/Vault"                  # base des fiches Insta/TikTok (ingest.py, index.md, build_vault.py)
+  scripts: "C:/Users/TON-NOM/Downloads/Scripts"    # projet scripts video (transcription YouTube, ecriture)
+  cookies: "firefox"                               # navigateur pour les cookies yt-dlp (Instagram prive)
+  python: ""                                       # python qui a les deps d'ingest.py (yt-dlp/faster-whisper/gallery-dl) ; vide = auto (C:/Python313)
+  bash: ""                                         # Git Bash pour ingest.sh (projet Scripts) ; vide = auto (C:/Program Files/Git/bin/bash.exe)
+
+hub:                           # indexeur/pipeline du hub de contenu
+  modele: ""                   # modele cloud pour l'indexation (vide = modele actif)
+  timeout_ingest: 600          # secondes max pour telecharger + transcrire une video (Insta/TikTok)
+  timeout_youtube: 3600        # secondes max pour une ingestion YouTube (chaine + Whisper, cote hote)
+  miroir_dossier: ""           # miroir de index.md + vault.html vers un dossier synchro (ex. iCloudDrive) ; vide = pas de miroir
+
+suivi:                         # suivi de contenus (pipeline video) ; voir docs/suivi_contenu.md
+  fichier: "contenus.yaml"     # liste des contenus (non versionnee) ; chemin relatif = racine du projet
+
+hud:                            # interface visuelle locale (http://127.0.0.1:8770)
+  fenetre: "app"                # app = fenetre dediee Edge/Chrome sans onglets ; navigateur = onglet classique
+  ecran: null                   # ecran ou l'ouvrir (0 = principal, puis de gauche a droite, comme l'overlay) ; null = libre
+  premier_plan_au_reveil: true  # « Hey Jarvis » fait passer la fenetre du HUD devant (sans prendre le clavier ni couvrir un plein ecran)
+
+signal_matin:                   # quotidien personnel A4 ; voir docs/signal_matin.md
+  actif: false                  # activer seulement apres validation de la preview et de l'impression
+  declenchement: "desactive"    # desactive | horaire | premier_demarrage
+  heure: "08:00"                # mode horaire : utilisee par le script Windows
+  imprimer: false               # opt-in obligatoire pour l'impression automatique au premier brief
+  recto_verso: false            # bord long ; verifier la compatibilite de l'imprimante
+  densite: "auto"               # auto | compact | standard | extended
+  imprimante: ""                # nom exact ; vide accepte uniquement s'il n'y en a qu'une
+  agenda: true                  # reutilise Google Agenda s'il est deja connecte
+  nombre_actualites: 12
+  nombre_actualites_repli: 18   # repli public plus fourni pour remplir l'edition etendue
+  actualites_age_max_heures: 48 # exclut les sujets trop anciens au moment de la generation
+  actualites_publiques_par_defaut: true # repli Le Monde si flux est vide ; false = rubrique vide
+  actualites_detaillees: true   # syntheses longues des sujets de une via le modele cloud actif
+  nombre_actualites_detaillees: 6 # deux pages de 3 articles en STANDARD/EXTENDED
+  nombre_actualites_tech: 6     # cahier tech separe, alimente par des flux publics recents
+  nombre_actualites_tech_detaillees: 5
+  nombre_curiosites_detaillees: 4
+  tech_age_max_heures: 72
+  modele_actualites: ""         # vide = modele cloud economique actif
+  brief_tech: false             # Brief Tech & IA analytique a la place du cahier tech ; voir docs/signal_matin.md
+  modele_brief: ""              # redaction + relecture du brief ; ex. "gpt-5.6-terra" ; vide = modele economique actif
+  modele_selection_brief: ""    # tri des titres candidats ; vide = modele economique actif
+  brief_contexte: "web"         # web (Jarvis cherche via DuckDuckGo, sans cle) | hermes | aucun ; Jarvis lit et verifie chaque page
+  brief_articles_max: 14        # articles lus en entier et fournis a la redaction
+  brief_candidats: 72           # titres collectes dans les flux tech avant le tri
+  brief_fenetre_heures: 72      # 24 h privilegiees ; au-dela, seulement un sujet pas encore traite
+  brief_historique_jours: 14    # anti-repetition locale (notes/, jamais versionne)
+  brief_budget_secondes: 780    # au-dela, le cahier tech classique est imprime a la place
+  brief_delai_redaction_secondes: 300 # delai par appel de redaction / relecture (le delai vocal reste openai.timeout)
+  modele_apprentissage: ""      # vide = local d'abord, puis modele cloud economique si la reserve de mots est epuisee
+  extracteur_public: false      # proxy de lecture interdit pour les flux personnels sauf opt-in
+  flux: []                      # ex. [{nom: "Media", categorie: "Monde", url: "https://.../rss.xml"}]
+  flux_tech: []                 # vide = veille publique par defaut (medias FR/EN, regionaux, sources primaires)
+  suivi: true                   # inclut le pipeline contenus.yaml (local, jamais versionne)
+  loopstr: true                 # inclut les echeances du flux iCal s'il est configure
+  mails: false                  # opt-in : sujets/expediteurs recents, jamais active par defaut
+  reseaux_sociaux: true         # stats Instagram configurees, comparees a la veille
+  discord: true                 # volumes/mentions/salons actifs, jamais les messages bruts
+  discord_heures: 24
+  priorites: []                 # valeurs personnelles uniquement dans config.yaml (gitignore)
+  rappels: []
+  hermes_fichier: ""            # brief/veille prepare localement par Hermes, si utilise
+  salutation: "Bonjour."
+  note: ""
+  dossier_sortie: "output"
+
+securite:                      # niveaux de permission (N8) ; voir docs/panneau.md
+  toujours: []                 # outils N2 memorises "toujours autoriser" (revocables au panneau)
+                               # rempli a la voix ("oui, toujours") ; un N3 n'y entre JAMAIS
+
+budget:                        # suivi de conso + garde-fous (N12) ; voir docs/costs.md
+  prix:                        # $/million de tokens (entree, sortie) ; cle = sous-chaine du modele
+    gpt-6-astra: [10.0, 50.0]  # tarifs OpenAI API ; verifier docs/costs.md
+    gpt-5.6-sol: [4.0, 20.0]
+    gpt-5.6-terra: [2.0, 12.0]
+    gpt-5.6-luna: [0.2, 1.2]
+    haiku: [1.0, 5.0]          # tarifs API Anthropic (a ajuster si besoin)
+    sonnet: [3.0, 15.0]
+    opus: [5.0, 25.0]
+  prix_elevenlabs: 0.10        # $ / 1000 caracteres synthetises (estimation ; ajuste selon ton offre)
+  plafond_jour: null           # $/jour ; null = pas de plafond. Ex: 2.0
+  plafond_mois: null           # $/mois ; null = pas de plafond. Ex: 30.0
+  alerte_pct: 80               # alerte VOCALE a ce % du plafond (jour ET mois)
+  mode_normal: hybride         # mode a retrouver le lendemain apres une bascule auto en local
+  crons_critiques: []          # noms de crons Hermes JAMAIS suspendus au plafond (ex: ["reveil", "sauvegarde"])
+
+gestes:                        # controle par gestes de la main (webcam USB) ; voir docs/gestes.md
+  actif: false                 # demarrer au lancement (sinon : "Jarvis, active les gestes")
+  device: 0                    # index de la webcam USB (0 = premiere)
+  fps: 24                      # ~20-30 suffisent ; CPU-only, ne doit rien voler a Whisper
+  largeur: 640
+  hauteur: 480
+  raccourci: "ctrl+alt+g"      # raccourci clavier pour basculer les gestes ("" = desactive)
+  raccourci_demo: "ctrl+alt+d" # repères visibles + actions réelles, pour une démonstration
+  raccourci_regard: "ctrl+alt+r" # bascule le contrôle local du pointeur par les yeux
+  camera_app:                   # facultatif : prépare une caméra virtuelle avant le mode visio
+    actif: false                # true si Logitech Capture (ou équivalent) doit être lancé d'abord
+    executable: ""             # vide = détection automatique de Logitech Capture sous Windows
+    attente_s: 3.0              # délai pour laisser la caméra virtuelle devenir disponible
+    fermer_avec_mode: true      # ne ferme que l'instance ouverte par Jarvis
+  navigation_horizontale: onglets # onglets/vues de l'app active ; "applications" restaure Alt+Tab
+  souris_moniteur: 1           # écran piloté par l'index : 1=principal, 2=second écran
+  pause_pendant_live: true     # compat anciens mappings OBS ; sans effet sur les modes v2
+  python: ""                   # python du venv tracker ; vide = gestes/.venv-tracker/Scripts/python.exe
+  seuils:                      # ajustables en calibration (gestes/calibration.json prime)
+    tenue_s: 1.4               # maintien des poses statiques hors mode continu
+    tenue_mode_s: 0.9          # maintien des 2 ou 3 doigts pour choisir un mode
+    cooldown_s: 0.8            # delai mini entre deux commandes
+    swipe_pas_horizontal: 0.09 # petit déplacement = un onglet/une piste
+    swipe_pas_vertical: 0.075  # petit déplacement = un cran de défilement/volume
+    swipe_dominance: 1.2       # axe principal >= autre axe * cette valeur
+    swipe_pret_s: 0.35         # stabilité initiale avant le contrôle continu
+    swipe_cooldown_s: 0.18     # cadence minimale entre deux petits pas
+    stabilite_seuil: 0.06      # mouvement max pendant cette stabilisation
+    inverser_vertical: false   # activer si haut/bas sont inversés par la caméra
+    mode_duree_s: 30.0         # horizon affiché, rafraîchi tant que la main reste visible
+    sortie_absence_s: 3.0      # absence continue avant fermeture ; filtre les pertes caméra
+    zoom_seuil: 0.12           # variation minimale de distance entre deux paumes
+    zoom_reduire_seuil: 0.08   # rapprochement plus sensible (amplitude naturelle plus courte)
+    zoom_tenue_s: 0.45         # stabilité des deux mains avant d'armer le zoom
+    zoom_stabilite_seuil: 0.035 # mouvement toléré pendant cette stabilisation
+    souris_marge: 0.10         # bord caméra ignoré puis étendu à tout l'écran
+    souris_lissage: 0.32       # 0.05 très doux, 1.0 très direct
+    souris_pincement_seuil: 0.55 # pouce-index ; augmenter rend le clic plus facile
+    souris_tenue_s: 0.45       # index immobile nécessaire pour armer la souris
+    souris_clic: false         # sûr par défaut ; activer localement ou avec [p] + [s]
+  mapping:                     # geste -> action (N1/N2 UNIQUEMENT ; jamais N3)
+    main_ouverte:     { action: media, commande: pause, label: "⏸ Pause" }
+    pouce_leve:       { action: media, commande: pause, label: "▶ Lecture" }
+    poing:            { action: couper_tts }
+    mode_fenetres:    { action: mode_feedback, label: "🗂 Mode onglets" }
+    fenetre_droite:   { action: fenetre, sens: suivant }
+    fenetre_gauche:   { action: fenetre, sens: precedent }
+    defilement_haut:  { action: defiler, sens: haut }
+    defilement_bas:   { action: defiler, sens: bas }
+    mode_souris:      { action: mode_feedback, label: "🖱 Mode souris" }
+    zoom_agrandir:    { action: zoom, sens: agrandir, crans: 1 }
+    zoom_reduire:     { action: zoom, sens: reduire, crans: 1 }
+    mode_audio:       { action: mode_feedback, label: "🔊 Mode audio" }
+    volume_haut:      { action: volume, sens: monter, crans: 4 }
+    volume_bas:       { action: volume, sens: baisser, crans: 4 }
+    piste_suivante:   { action: media, commande: suivant, label: "⏭ Piste suivante" }
+    piste_precedente: { action: media, commande: precedent, label: "⏮ Piste précédente" }
+
+musique:                       # reconnaissance musicale (Shazam-like) ; voir docs/musique.md
+  secondes: 8                  # duree de capture par defaut (4-15). Aucune cle requise.
+  # Installe le venv isole une fois : python scripts/setup_musique.py
+  # (shazamio-core n'a pas de wheel Python 3.13 -> venv 3.12 dedie, comme les gestes)
+
+spotify:                       # ajouter les musiques reconnues a une playlist ; docs/spotify.md
+  client_id: ""                # https://developer.spotify.com/dashboard (cree une app)
+  client_secret: ""            # + URI de redirection : http://127.0.0.1:8899/callback
+  playlist: "Jarvis Finds"     # nom de la playlist cible (creee si absente)
+  auto_ajout: false            # true = ajoute AUTOMATIQUEMENT chaque musique reconnue
+  lancement_delai: 3.0         # attente si l'app doit devenir un lecteur Spotify actif
+  appareils: {}                # ex. {cuisine: "Jarvis Cuisine"} pour Spotify Connect
+  # Connexion une fois : python scripts/spotify_login.py (refresh_token dans logs/spotify/)
+
+cockpit:                       # tableau de bord perso (app web locale) ; docs/cockpit.md
+  actif: false                 # ouvrir le cockpit au demarrage (fenetre app --app)
+  ecran: 0                     # ecran cible (0 = principal, 1 = 2e ecran...)
+  navigateur: ""               # chemin chrome/edge ; vide = auto-detection
+  # Donnees 100% locales dans finances/ (gitignore). Copie finances/abonnements.example.yaml
+
+finances:                      # transactions (import CSV, puis PSD2) ; docs/cockpit.md
+  dossier_csv: "finances/releves"   # depose ton export bancaire CSV ici -> "importe mon releve"
+  taux_usd_eur: 0.92           # conversion $ -> € pour la detection d'abonnements par mail
+
+amaran:                        # lumieres video amaran (BLE mesh via ESP32) ; docs/lumieres_video.md
+  url: ""                      # http://<ip-esp32>:2708 (firmware wesbos/amaran-BLE-control) ; vide = desactive
+  piece: ""                    # piece ou elle se trouve (ex. "chambre") -> repond aussi a "la lumiere de la chambre"
+  noms: []                     # alias supplementaires reconnus (ex. ["ma lumiere", "spot"])
+
+overlay:                       # mini-fenetre qui affiche a l'ecrit ce que Jarvis dit ; docs/overlay.md
+  actif: true                  # afficher l'overlay (Windows uniquement ; sinon ignore)
+  ecran: 1                     # moniteur cible (0 = principal, 1 = 2e ecran...)
+  coin: "bas-droite"           # haut-gauche / haut-droite / bas-gauche / bas-droite
+  opacite: 0.92                # 0.3 - 1.0
+  largeur: 420                 # px
+  duree_min: 4.0               # s d'affichage (reponse courte)
+  duree_max: 14.0              # s d'affichage (reponse longue)
+  marge: 24                    # px depuis le bord de l'ecran
+  exclure_obs: true            # invisible pour OBS/game-capture (tes reponses hors live)
+  muet_visuel: false           # true = repond SANS parler (overlay seul) ; bascule a la voix
+
+google_home:                   # EXPERIMENTAL (non teste) ; voir docs/google_home.md
+  project_id:    ""            # ID du projet Device Access (SDM) ; vide = desactive
+  client_id:     ""            # OAuth client (console.cloud.google.com)
+  client_secret: ""
+  refresh_token: ""            # obtenu via l'OAuth Device Access (docs/google_home.md)
+
+alexa:                         # EXPERIMENTAL (via alexapy, non officiel) ; voir docs/alexa.md
+  email: ""                    # compte Amazon ; vide = desactive
+  password: ""
+  otp_secret: ""               # graine TOTP du 2FA (recommande pour une reconnexion sans intervention)
+  url: "amazon.fr"             # domaine Amazon (amazon.fr, amazon.com, amazon.de...)
+  dossier: "logs/alexa"        # cookie de session (sous logs/, gitignore)
+  proxy_port: 3000             # port du proxy de connexion (scripts/alexa_login.py)
+  routage_prioritaire: true    # commandes domotiques/routines -> Alexa avant le LLM (false = choix du LLM)
+
+meteo:
+  ville: ""                     # "" = auto par IP (localisation) ; mets ta ville si l'IP se trompe (ex. "Yerres", "Paris")
+
+satellites:                    # Jarvis dans d'autres pieces (Raspberry Pi, futur ESP32) — cf. docs/satellite.md
+  # LAN uniquement (jamais expose via ngrok). Jarvis ouvre automatiquement le
+  # listener satellite dédié ci-dessous si au moins une entrée est configurée.
+  # - id: "cuisine"            # identifiant unique du satellite
+  #   piece: "cuisine"         # piece par defaut (contexte : "allume la lumiere" -> cuisine)
+  #   token: "un-secret-long-par-satellite"   # genere : python -c "import secrets;print(secrets.token_urlsafe(24))"
+  #   wake: "appareil"         # pris en charge ; "serveur" est reserve a un futur client a flux continu
+  #   priorite_micro: 1.0      # ajustement optionnel du score si ce micro gagne trop/pas assez souvent
+  #   brief_au_demarrage: false # true seulement pour le poste principal ; une fois par jour côté serveur
+
+# Poste Windows qui porte les applis, le navigateur, les touches media et le son.
+# L'agent initie une connexion sortante et n'accepte jamais de commande shell.
+# Guide : docs/poste_principal_windows.md
+poste_principal:
+  actif: false
+  agent: "bureau"
+  serveur_sans_peripheriques: true  # ancien PC sans écran, micro, webcam, clavier ni souris
+
+desktop_agents:
+  # - id: "bureau"
+  #   token: "un-autre-secret-long"  # distinct du token satellite audio
+
+satellite_lan:
+  actif: true
+  host: "0.0.0.0"             # listener dédié : /satellite et /desktop-agent uniquement
+  port: 8791
+  whisper_modele: "small"      # modèle dédié au satellite, plus léger que le principal
+  whisper_device: "cpu"        # évite de charger un second Whisper sur le GPU
+  whisper_compute_type: "int8"
+  conversation_suivie: true    # relance sans répéter « Hey Jarvis » après une réponse
+  fenetre_relance: 8.0         # secondes d'écoute pour une question de suivi
+  max_relances: 2              # nombre maximal de suivis par « Hey Jarvis » ; évite l'écoute infinie
+  accuse_reveil_vocal: true    # dit « Oui ? » dès que le wake word est accepté
+  texte_accuse_reveil: "Oui ?"
+  delai_accuse_reveil: 2.5     # au-delà, le satellite utilise son bip local
+  accuse_immediat: true        # accusé contextuel seulement pour une tâche lente
+  progression_traitement_apres: 4.0     # annonce l'étape si le LLM cherche encore

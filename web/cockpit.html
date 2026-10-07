@@ -1,0 +1,165 @@
+<!doctype html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Jarvis — Cockpit</title>
+<style>
+  :root{--bg:#0d1017;--card:#151a22;--card2:#1c222c;--bord:#2a2f3a;--txt:#e6e8ec;
+    --dim:#9aa2b1;--acc:#5b8cff;--ok:#3ecf8e;--warn:#f5b942;--ko:#ff6b6b}
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--txt);
+    font:14px/1.55 -apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif}
+  header{padding:16px 22px;border-bottom:1px solid var(--bord);display:flex;
+    align-items:center;gap:12px;position:sticky;top:0;background:var(--bg);z-index:5}
+  header h1{font-size:16px;margin:0;font-weight:600}
+  .pill{font-size:11px;padding:2px 8px;border-radius:999px;background:#173a2a;color:#7ee2b0}
+  nav{display:flex;gap:4px;padding:12px 20px 0;flex-wrap:wrap}
+  nav button{background:none;border:none;color:var(--dim);padding:8px 15px;
+    border-radius:8px 8px 0 0;cursor:pointer;font-size:14px}
+  nav button.on{color:var(--txt);background:var(--card);border:1px solid var(--bord);border-bottom:none}
+  nav button:disabled{opacity:.45;cursor:default}
+  main{padding:18px 22px 60px}
+  .tab{display:none}.tab.on{display:block}
+  .card{background:var(--card);border:1px solid var(--bord);border-radius:12px;padding:16px;margin:0 0 16px}
+  .card h2{font-size:13px;margin:0 0 12px;color:var(--dim);text-transform:uppercase;letter-spacing:.05em}
+  .kpis{display:flex;gap:12px;flex-wrap:wrap}
+  .kpi{background:var(--card2);border:1px solid var(--bord);border-radius:10px;padding:12px 16px;min-width:150px}
+  .kpi .v{font-size:26px;font-weight:600}.kpi .l{color:var(--dim);font-size:12px}
+  table{width:100%;border-collapse:collapse}
+  th,td{text-align:left;padding:8px 10px;border-bottom:1px solid var(--bord)}
+  th{color:var(--dim);font-weight:500;font-size:12px}
+  td.num{text-align:right;font-variant-numeric:tabular-nums}
+  .badge{display:inline-block;font-size:11px;padding:2px 8px;border-radius:6px;
+    background:var(--card2);border:1px solid var(--bord);color:var(--dim)}
+  .badge.soon{background:#3a2410;border-color:#5a4a12;color:#e9cf7a}
+  .alerte{background:#2a2410;border:1px solid #5a4a12;color:#e9cf7a;border-radius:10px;
+    padding:10px 14px;margin-bottom:8px}
+  .alerte.chg{background:#20304d;border-color:#2a416e;color:#9dc0ff}
+  .muted{color:var(--dim)} .placeholder{color:var(--dim);padding:30px;text-align:center}
+  .barre{height:8px;background:var(--card2);border-radius:6px;overflow:hidden;margin-top:6px}
+  .barre>i{display:block;height:100%;background:var(--acc)}
+  .cat{display:flex;justify-content:space-between;padding:6px 0}
+</style>
+</head>
+<body>
+<header>
+  <h1>Jarvis — Cockpit</h1>
+  <span class="pill">local uniquement</span>
+  <span id="maj" class="muted" style="margin-left:auto;font-size:12px"></span>
+</header>
+<nav>
+  <button data-t="finances" class="on">💶 Finances</button>
+  <button data-t="energie" disabled>⚡ Énergie <span class="badge soon">à venir</span></button>
+  <button data-t="reseaux" disabled>📈 Réseaux <span class="badge soon">à venir</span></button>
+  <button data-t="contenu" disabled>🎬 Contenu <span class="badge soon">à venir</span></button>
+  <button data-t="maison" disabled>🏠 Maison <span class="badge soon">à venir</span></button>
+</nav>
+<main>
+  <section id="finances" class="tab on">
+    <div id="alertes"></div>
+    <div class="card"><h2>Ce mois</h2><div class="kpis" id="kpis"></div></div>
+    <div class="card"><h2>Prochaines échéances</h2>
+      <table><thead><tr><th>Service</th><th>Catégorie</th><th class="num">Montant</th>
+        <th>Périodicité</th><th>Prochain prélèvement</th></tr></thead>
+      <tbody id="timeline"></tbody></table>
+      <div id="vide" class="placeholder" style="display:none">
+        Aucun abonnement. Crée <span class="badge">finances/abonnements.yaml</span>
+        (copie <span class="badge">finances/abonnements.example.yaml</span>).</div>
+    </div>
+    <div class="card"><h2>Par catégorie (abonnements)</h2><div id="categories"></div></div>
+
+    <div class="card"><h2>Ce mois — transactions</h2>
+      <div class="kpis" id="txkpis"><span class="muted">Importe un relevé : « Jarvis, importe mon relevé » (CSV dans finances/releves/).</span></div>
+      <div id="txcats" style="margin-top:10px"></div>
+    </div>
+    <div class="card"><h2>Abonnements repérés dans tes transactions</h2>
+      <div id="txrec" class="muted">—</div>
+      <small class="note">Un prélèvement qui revient chaque mois = un abonnement (montant et date exacts).</small>
+    </div>
+  </section>
+  <section id="energie" class="tab"><div class="placeholder">Volet Énergie — phase future (compteur ou prise compatible avec une API locale).</div></section>
+  <section id="reseaux" class="tab"><div class="placeholder">Volet Réseaux — Phase 3.</div></section>
+  <section id="contenu" class="tab"><div class="placeholder">Volet Contenu — Phase 3.</div></section>
+  <section id="maison" class="tab"><div class="placeholder">Volet Maison/Système — Phase 3 (liens vers /panneau).</div></section>
+</main>
+<script>
+const $=(s,e=document)=>e.querySelector(s);
+const esc=s=>String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+const eur=n=>esc((n||0).toLocaleString('fr-FR',{minimumFractionDigits:2,maximumFractionDigits:2}))+' €';
+const api=async u=>{try{return await (await fetch(u,{headers:{'X-Jarvis-Panneau':'1'}})).json()}catch(e){return null}};
+
+document.querySelectorAll('nav button:not([disabled])').forEach(b=>b.onclick=()=>{
+  document.querySelectorAll('nav button').forEach(x=>x.classList.toggle('on',x===b));
+  document.querySelectorAll('.tab').forEach(t=>t.classList.toggle('on',t.id===b.dataset.t));
+});
+
+function jour(iso){
+  const d=new Date(iso+'T00:00:00');
+  return d.toLocaleDateString('fr-FR',{weekday:'short',day:'numeric',month:'short'});
+}
+function dans(n){
+  if(n===0)return "aujourd'hui"; if(n===1)return "demain";
+  return "dans "+n+" j";
+}
+
+async function charger(){
+  const d=await api('/api/cockpit/finances');
+  if(!d){$('#kpis').innerHTML='<span class="muted">Cockpit hors ligne.</span>';return;}
+  $('#maj').textContent='maj '+new Date().toLocaleTimeString('fr-FR');
+  // alertes
+  $('#alertes').innerHTML=(d.alertes||[]).map(a=>{
+    const chg=a.startsWith('Montant');
+    return `<div class="alerte ${chg?'chg':''}">${chg?'🔔':'⏰'} ${esc(a)}</div>`;
+  }).join('');
+  // kpis
+  $('#kpis').innerHTML=`
+    <div class="kpi"><div class="v">${eur(d.total_mensuel)}</div><div class="l">abonnements / mois</div></div>
+    <div class="kpi"><div class="v">${eur(d.total_annuel)}</div><div class="l">soit / an</div></div>
+    <div class="kpi"><div class="v">${esc(d.nb)}</div><div class="l">abonnements actifs</div></div>`;
+  // timeline
+  $('#vide').style.display=d.nb?'none':'block';
+  $('#timeline').innerHTML=(d.abonnements||[]).map(a=>`<tr>
+    <td>${esc(a.service)}</td><td><span class="badge">${esc(a.categorie)}</span></td>
+    <td class="num">${eur(a.montant)}</td><td class="muted">${esc(a.periodicite)}</td>
+    <td>${esc(jour(a.prochaine))} <span class="muted">· ${esc(dans(a.dans_jours))}</span></td></tr>`).join('');
+  // categories (barres)
+  const cats=Object.entries(d.par_categorie||{}).sort((a,b)=>b[1]-a[1]);
+  const max=cats.length?cats[0][1]:1;
+  $('#categories').innerHTML=cats.map(([c,v])=>`
+    <div class="cat"><span>${esc(c)}</span><span class="num">${eur(v)}/mois</span></div>
+    <div class="barre"><i style="width:${Math.round(v/max*100)}%"></i></div>`).join('')
+    || '<span class="muted">—</span>';
+}
+
+async function chargerTx(){
+  const d=await api('/api/cockpit/transactions');
+  if(!d||!d.vue) return;
+  const v=d.vue;
+  const rien=(v.entrees===0&&v.sorties===0);
+  if(!rien){
+    $('#txkpis').innerHTML=`
+      <div class="kpi"><div class="v" style="color:#3ecf8e">${eur(v.entrees)}</div><div class="l">entrées (${esc(v.mois)})</div></div>
+      <div class="kpi"><div class="v" style="color:#ff8a8a">${eur(v.sorties)}</div><div class="l">sorties</div></div>
+      <div class="kpi"><div class="v">${eur(v.solde)}</div><div class="l">solde</div></div>`;
+    const cats=Object.entries(v.par_categorie||{}).filter(([,x])=>x.sorties>0);
+    const max=cats.length?Math.max(...cats.map(([,x])=>x.sorties)):1;
+    $('#txcats').innerHTML=cats.map(([c,x])=>`
+      <div class="cat"><span>${esc(c)}</span><span class="num">${eur(x.sorties)}</span></div>
+      <div class="barre"><i style="width:${Math.round(x.sorties/max*100)}%"></i></div>`).join('');
+  }
+  const rec=d.recurrents||[];
+  $('#txrec').innerHTML= rec.length? `<table><thead><tr><th>Prélèvement</th>
+    <th class="num">Montant</th><th>Fréquence</th><th></th></tr></thead><tbody>`
+    + rec.map(r=>`<tr><td>${esc(r.service)}</td><td class="num">${eur(r.montant)}</td>
+      <td class="muted">${esc(r.mois)} mois · ${esc(r.occurrences)}×</td>
+      <td>${r.stable?'<span class="badge">montant fixe</span>':'<span class="badge soon">variable</span>'}</td></tr>`).join('')
+    + '</tbody></table>' : '<span class="muted">Aucun (importe un relevé pour les détecter).</span>';
+}
+
+function tout(){ charger(); chargerTx(); }
+tout();
+setInterval(tout, 60000);
+</script>
+</body>
+</html>

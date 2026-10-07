@@ -1,0 +1,18 @@
+# Suivi de contenus — ton pipeline video, de l'idee a la publication.
+#
+# Copie ce fichier en contenus.yaml (NON versionne : donnees perso).
+# Editable A LA MAIN ou par Jarvis a la voix :
+#   « nouvelle idee de video : ... »   -> ajoute une entree en statut idee
+#   « passe ... en tournage »          -> change le statut
+#   « ou j'en suis ? »                 -> resume du pipeline + retards
+# Le brief du matin signale les contenus en retard / a echeance proche.
+#
+# Statuts (dans l'ordre) : idee -> script -> tournage -> montage -> publie
+# Champs : titre (requis), statut, plateforme, deadline (AAAA-MM-JJ), notes, cree_le.
+
+- titre: "Exemple : 5 outils IA gratuits"
+  statut: idee            # idee | script | tournage | montage | publie
+  plateforme: youtube     # instagram | tiktok | youtube | ... (optionnel)
+  deadline: ""            # AAAA-MM-JJ ; vide = pas de deadline
+  notes: "hook a retravailler"
+  cree_le: 2026-08-11

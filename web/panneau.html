@@ -1,0 +1,512 @@
+<!doctype html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Jarvis — Panneau</title>
+<style>
+  :root{
+    --bg:#0f1115; --card:#171a21; --card2:#1d222b; --bord:#2a2f3a;
+    --txt:#e6e8ec; --dim:#9aa2b1; --acc:#5b8cff; --ok:#3ecf8e; --ko:#ff6b6b;
+    --warn:#f5b942; --lock:#c9a227;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--txt);
+    font:14px/1.5 -apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif}
+  header{padding:16px 20px;border-bottom:1px solid var(--bord);
+    display:flex;align-items:center;gap:12px;position:sticky;top:0;background:var(--bg);z-index:5}
+  header h1{font-size:16px;margin:0;font-weight:600}
+  .pill{font-size:11px;padding:2px 8px;border-radius:999px;background:#20304d;color:#9dc0ff}
+  .pill.local{background:#173a2a;color:#7ee2b0}
+  nav{display:flex;gap:6px;padding:12px 20px 0}
+  nav button{background:none;border:none;color:var(--dim);padding:8px 14px;border-radius:8px 8px 0 0;
+    cursor:pointer;font-size:14px}
+  nav button.on{color:var(--txt);background:var(--card);border:1px solid var(--bord);border-bottom:none}
+  main{padding:18px 20px 60px}
+  .tab{display:none} .tab.on{display:block}
+  .card{background:var(--card);border:1px solid var(--bord);border-radius:12px;padding:16px;margin:0 0 16px}
+  .card h2{font-size:14px;margin:0 0 12px;color:var(--dim);text-transform:uppercase;letter-spacing:.04em}
+  .row{display:flex;flex-wrap:wrap;gap:10px}
+  .kpi{background:var(--card2);border:1px solid var(--bord);border-radius:10px;padding:10px 14px;min-width:140px}
+  .kpi .v{font-size:20px;font-weight:600} .kpi .l{color:var(--dim);font-size:12px}
+  table{width:100%;border-collapse:collapse}
+  th,td{text-align:left;padding:8px 10px;border-bottom:1px solid var(--bord);vertical-align:middle}
+  th{color:var(--dim);font-weight:500;font-size:12px}
+  .badge{display:inline-block;font-size:11px;padding:2px 7px;border-radius:6px;margin:1px 2px;
+    border:1px solid var(--bord);background:var(--card2);color:var(--dim);white-space:nowrap}
+  .badge.on{background:#173a2a;color:#7ee2b0;border-color:#1f5a3f}
+  .badge.off{background:#3a1c1c;color:#ff9a9a;border-color:#5a2020}
+  button.act{background:var(--acc);color:#fff;border:none;border-radius:8px;padding:6px 11px;cursor:pointer;font-size:13px}
+  button.act.ghost{background:transparent;border:1px solid var(--bord);color:var(--txt)}
+  button.act.danger{background:transparent;border:1px solid #5a2020;color:#ff9a9a}
+  button.act:disabled{opacity:.5;cursor:default}
+  .actif{outline:2px solid var(--acc)}
+  .dot{display:inline-block;width:10px;height:10px;border-radius:50%;margin-right:8px;vertical-align:middle}
+  .dot.up{background:var(--ok)} .dot.down{background:var(--ko)} .dot.unk{background:var(--warn)}
+  .muted{color:var(--dim)} .mono{font-family:ui-monospace,Consolas,monospace;font-size:12px}
+  input.txt,select.txt{background:var(--card2);border:1px solid var(--bord);color:var(--txt);border-radius:8px;padding:6px 9px;font-size:13px}
+  select.txt{min-width:240px;max-width:100%}
+  input[type=range]{accent-color:var(--acc);width:220px;vertical-align:middle}
+  .fld{display:flex;flex-wrap:wrap;align-items:center;gap:12px;padding:10px 0;border-bottom:1px solid var(--bord)}
+  .fld:last-child{border-bottom:none}
+  .fld .lab{min-width:210px} .fld .lab b{font-weight:600}
+  .fld .lab small{display:block;color:var(--dim);font-size:12px}
+  .seg{display:inline-flex;border:1px solid var(--bord);border-radius:8px;overflow:hidden}
+  .seg button{background:var(--card2);border:none;color:var(--dim);padding:7px 14px;cursor:pointer;font-size:13px}
+  .seg button.on{background:var(--acc);color:#fff}
+  .rngval{min-width:52px;text-align:right;font-family:ui-monospace,Consolas,monospace}
+  .msg{margin-top:8px;font-size:13px;min-height:18px}
+  .lock{background:#2a2410;border:1px solid #5a4a12;color:#e9cf7a;border-radius:10px;padding:12px 14px;margin-bottom:14px}
+  .prog{height:6px;background:var(--card2);border-radius:6px;overflow:hidden;margin-top:6px;display:none}
+  .prog>i{display:block;height:100%;width:0;background:var(--acc)}
+  small.note{color:var(--dim)}
+  @media(max-width:640px){td .row{flex-direction:column;align-items:flex-start}}
+</style>
+</head>
+<body>
+<header>
+  <h1>Jarvis — Panneau de configuration</h1>
+  <span class="pill local">local uniquement</span>
+  <span id="hdr" class="muted" style="margin-left:auto;font-size:12px"></span>
+</header>
+<nav>
+  <button data-t="modeles" class="on">Modèles</button>
+  <button data-t="reglages">Réglages</button>
+  <button data-t="etat">État</button>
+  <button data-t="perms">Permissions</button>
+</nav>
+<main>
+  <section id="modeles" class="tab on">
+    <div class="card"><h2>Matériel</h2><div id="mat" class="row"></div></div>
+    <div class="card"><h2>Modèle actif par backend</h2><div id="actifs"></div></div>
+    <div class="card"><h2>Modèles cloud OpenAI</h2>
+      <div id="openai-etat" class="muted" style="margin-bottom:8px"></div>
+      <table><thead><tr><th>Modèle</th><th>Capacités</th><th>Prix API / 1M tokens</th><th>Activer</th></tr></thead>
+      <tbody id="openai-modeles"></tbody></table>
+      <small class="note">L'abonnement ChatGPT et la facturation API sont séparés. La clé reste uniquement dans <span class="mono">config.yaml</span>.</small>
+    </div>
+    <div class="card"><h2>Modèles LLM locaux (Ollama)</h2>
+      <div id="ollama-etat" class="muted" style="margin-bottom:8px"></div>
+      <table><thead><tr><th>Modèle</th><th>Badges</th><th>Taille</th><th></th></tr></thead>
+      <tbody id="llm"></tbody></table>
+      <div id="llm-autres"></div>
+    </div>
+    <div class="card"><h2>Modèles Whisper (transcription)</h2>
+      <table><thead><tr><th>Modèle</th><th>Badges</th><th></th></tr></thead>
+      <tbody id="whisper"></tbody></table>
+      <small class="note">Les tests du panneau utilisent le CPU pour rester portables ; l'exécution réelle dépend de la configuration.</small>
+    </div>
+  </section>
+
+  <section id="reglages" class="tab">
+    <div class="card"><h2>Mode de routage</h2>
+      <div class="fld"><div class="lab"><b>Où réfléchit Jarvis</b>
+        <small>Local = hors ligne. Hybride = modèle quotidien économique du fournisseur choisi + Hermes pour le fond. Qualité = modèle puissant séparé.</small></div>
+        <div class="seg" id="seg-mode">
+          <button data-v="local">🖥️ Local</button>
+          <button data-v="hybride">⚡ Hybride</button>
+          <button data-v="qualite">✨ Qualité</button>
+        </div>
+      </div>
+      <small class="note">Le profil hybride mémorise le fournisseur et son modèle quotidien : Luna chez OpenAI et Haiku chez Claude par défaut. Un choix manuel reste prioritaire.</small>
+    </div>
+
+    <div class="card"><h2>Audio</h2>
+      <div class="fld"><div class="lab"><b>Microphone</b><small>Entrée utilisée pour t'écouter.</small></div>
+        <select class="txt" id="sel-micro" onchange="setReglage('audio.micro',this.value,this)"></select></div>
+      <div class="fld"><div class="lab"><b>Haut-parleur</b><small>Sortie pour la voix de Jarvis.</small></div>
+        <select class="txt" id="sel-hp" onchange="setReglage('audio.haut_parleur',this.value,this)"></select></div>
+      <div id="audio-msg" class="msg"></div>
+    </div>
+
+    <div class="card"><h2>Voix de Jarvis</h2>
+      <div class="fld"><div class="lab"><b>Moteur vocal</b>
+        <small>Auto choisit ElevenLabs en cloud et Piper en local. Le mode local reste intégralement local.</small></div>
+        <div class="seg" id="seg-tts">
+          <button data-v="auto">Auto</button>
+          <button data-v="elevenlabs">ElevenLabs</button>
+          <button data-v="piper">Piper</button>
+          <button data-v="kokoro">Kokoro</button>
+          <button data-v="windows">Windows</button>
+        </div>
+      </div>
+      <div class="fld"><div class="lab"><b>Voix ElevenLabs</b>
+        <small id="elevenlabs-etat">Vérification du compte…</small></div>
+        <select class="txt" id="sel-eleven-voix" onchange="setReglage('elevenlabs.voix',this.value,this)"></select>
+      </div>
+      <div class="fld"><div class="lab"><b>Modèle ElevenLabs</b><small>Flash = faible latence pour la conversation.</small></div>
+        <select class="txt" id="sel-eleven-modele" onchange="setReglage('elevenlabs.modele',this.value,this)">
+          <option value="eleven_flash_v2_5">Eleven Flash v2.5</option>
+          <option value="eleven_turbo_v2_5">Eleven Turbo v2.5</option>
+          <option value="eleven_multilingual_v2">Eleven Multilingual v2</option>
+        </select>
+      </div>
+      <div class="row"><button class="act" onclick="testerVoix()">Tester la voix</button></div>
+      <div id="tts-msg" class="msg"></div>
+    </div>
+
+    <div class="card"><h2>Voix &amp; écoute</h2>
+      <div class="fld"><div class="lab"><b>Personnalité</b><small>Le ton des réponses.</small></div>
+        <select class="txt" id="sel-perso" onchange="setReglage('assistant.personnalite',this.value,this)"></select></div>
+      <div class="fld"><div class="lab"><b>Durée d'écoute enchaînée</b>
+        <small>Secondes où Jarvis continue d'écouter après une réponse (sans redire le mot d'activation).</small></div>
+        <input type="range" id="rng-suite" min="0" max="30" step="1"
+          oninput="$('#val-suite').textContent=this.value+' s'"
+          onchange="setReglage('assistant.duree_suite',this.value,this)">
+        <span class="rngval" id="val-suite">—</span></div>
+      <div id="voix-msg" class="msg"></div>
+    </div>
+
+    <div class="card"><h2>Mot d'activation</h2>
+      <div class="fld"><div class="lab"><b>Phrase</b><small>Modèle openWakeWord embarqué.</small></div>
+        <span class="badge on">« Hey Jarvis »</span></div>
+      <div class="fld"><div class="lab"><b>Sensibilité</b>
+        <small>Bas = se déclenche facilement (plus de faux positifs). Haut = strict.</small></div>
+        <input type="range" id="rng-seuil" min="0.30" max="0.80" step="0.05"
+          oninput="$('#val-seuil').textContent=(+this.value).toFixed(2)"
+          onchange="setReglage('assistant.seuil_reveil',this.value,this)">
+        <span class="rngval" id="val-seuil">—</span></div>
+      <div id="wake-msg" class="msg"></div>
+    </div>
+    <small class="note">Ces réglages s'écrivent dans <span class="mono">config.yaml</span> — <b>redémarre Jarvis</b> pour les appliquer.</small>
+  </section>
+
+  <section id="etat" class="tab">
+    <div class="card"><h2>Chaîne Jarvis ↔ Hermes</h2>
+      <div id="chaine"></div>
+      <div style="margin-top:12px" class="row">
+        <button class="act ghost" onclick="chargerEtat()">Rafraîchir</button>
+        <button class="act" onclick="reconnecter()">Reconnecter MCP (remède parking)</button>
+      </div>
+      <div id="etat-msg" class="msg"></div>
+    </div>
+    <div class="card"><h2>Budget par fournisseur</h2>
+      <div id="budget"></div>
+      <small class="note">Jarvis : mesuré (tokens + coût estimé, tarifs config <span class="mono">budget.prix</span>). Hermes : tokens via <span class="mono">hermes insights</span>.</small>
+    </div>
+    <div class="card"><h2>File de tâches Hermes <span id="taches-kpi" class="muted" style="font-size:12px;font-weight:400"></span></h2>
+      <div id="taches" class="muted">Chargement…</div>
+      <small class="note">Command center : délégations parallèles, statut · durée · tokens · coût estimé. À la voix : « où en sont les tâches ? »</small>
+    </div>
+    <div class="card"><h2>Activité Hermes</h2>
+      <div id="activite" class="muted">Chargement…</div>
+    </div>
+  </section>
+
+  <section id="perms" class="tab">
+    <div id="n3" class="lock"></div>
+    <div class="card"><h2>Périmètre en un coup d'œil</h2><div id="perm-kpi" class="row"></div>
+      <div id="perm-note" class="muted" style="margin-top:10px"></div></div>
+    <div class="card"><h2>Accès fichiers d'Hermes (Docker, montages)</h2><div id="mounts"></div></div>
+    <div class="card"><h2>Outils &amp; garde-fous</h2>
+      <div class="muted" style="margin-bottom:8px;font-size:12px">
+        <span class="badge">N1 sûr</span> local + iPhone ·
+        <span class="badge" style="background:#2a2410;color:#e9cf7a;border-color:#5a4a12">N2 sensible</span> confirmation, mémorisable ·
+        <span class="badge off">N3 critique</span> 🔒 jamais mémorisable, jamais à distance
+      </div>
+      <table><thead><tr><th>Outil</th><th>Niveau</th><th>Exposé MCP</th><th>Confirmation</th><th>Rôle</th></tr></thead>
+      <tbody id="outils"></tbody></table></div>
+  </section>
+</main>
+
+<script>
+const $=(s,e=document)=>e.querySelector(s), $$=(s,e=document)=>[...e.querySelectorAll(s)];
+const api=async(u,o)=>{const r=await fetch(u,o);try{return await r.json()}catch(e){return{ok:false,message:'reponse invalide'}}};
+const post=(u,b)=>api(u,{method:'POST',headers:{'Content-Type':'application/json','X-Jarvis-Panneau':'1'},body:JSON.stringify(b||{})});
+const esc=s=>String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+const bYes=(t)=>`<span class="badge on">${esc(t)}</span>`, bNo=(t)=>`<span class="badge off">${esc(t)}</span>`;
+
+$$('nav button').forEach(b=>b.onclick=()=>{
+  $$('nav button').forEach(x=>x.classList.toggle('on',x===b));
+  $$('.tab').forEach(t=>t.classList.toggle('on',t.id===b.dataset.t));
+  if(b.dataset.t==='etat'){chargerEtat();chargerBudget();chargerActivite();chargerTaches();} if(b.dataset.t==='perms')chargerPerms();
+  if(b.dataset.t==='reglages')chargerReglages();
+});
+const fmt=n=>esc((n||0).toLocaleString('fr-FR'));
+const eur=n=>'$'+(n||0).toFixed(2);
+
+/* ---------- MODELES ---------- */
+async function chargerModeles(){
+  const d=await api('/api/panneau/modeles');
+  // materiel
+  const m=d.materiel;
+  $('#mat').innerHTML = m.cpu_seulement
+    ? `<div class="kpi"><div class="v">CPU seulement</div><div class="l">aucun GPU NVIDIA</div></div>`
+    : m.gpu.map(g=>`<div class="kpi"><div class="v">${esc(g.nom.replace('NVIDIA ',''))}</div><div class="l">GPU</div></div>`).join('')
+      + `<div class="kpi"><div class="v">${esc(m.vram_total_go)} Go</div><div class="l">VRAM totale</div></div>`
+      + `<div class="kpi"><div class="v">${esc(m.vram_exploitable_go)} Go</div><div class="l">exploitable (LLM)</div></div>`;
+  // actifs par backend
+  const A=d.actifs, be=d.backend_actif;
+  const ligneActif=(cle,label,val,editable)=>{
+    const on = (cle==='local'&&be==='local')||(cle==='cloud'&&(be==='hybride'||be==='qualite'));
+    let ed = editable? `<input class="txt" id="in-${cle}" value="${esc(val)}" style="width:230px">
+       <button class="act ghost" onclick="${cle==='cloud'?`activerCloud($('#in-cloud').value,'${be==='qualite'?'qualite':'hybride'}')`:`activer('${cle}',$('#in-${cle}').value)`}">Activer</button>`:'';
+    return `<tr><td>${label} ${on?'<span class="badge on">actif</span>':''}</td>
+      <td class="mono">${esc(val)}</td><td>${ed}</td></tr>`;
+  };
+  $('#actifs').innerHTML=`<table><tbody>
+    ${ligneActif('local','LLM local (Ollama)',A.local,false)}
+    ${ligneActif('cloud',`LLM cloud (${A.cloud_fournisseur==='openai'?'OpenAI':'Anthropic'})`,A.cloud,true)}
+    ${ligneActif('whisper','Whisper (voix→texte)',A.whisper,false)}
+    ${ligneActif('hermes','Hermes (orchestrateur)',A.hermes,true)}
+  </tbody></table><small class="note">Les changements LLM et de mode prennent effet au prochain tour, sans redémarrage.</small>`;
+  // cloud OpenAI
+  const oa=d.openai||{};
+  $('#openai-etat').innerHTML = !oa.configure
+    ? '<span style="color:var(--ko)">Clé API absente : ajoute <span class="mono">openai.cle</span> dans config.yaml.</span>'
+    : oa.joignable ? '<span style="color:var(--ok)">API OpenAI connectée.</span>'
+    : `<span style="color:var(--ko)">API non vérifiée : ${esc(oa.erreur||'accès refusé')}</span>`;
+  $('#openai-modeles').innerHTML=(oa.catalogue||[]).map(c=>{
+    const acces=c.accessible===true?bYes('autorisé'):(c.accessible===false?bNo('non autorisé'):'<span class="badge">à vérifier</span>');
+    const badges=acces+bYes('outils')+bYes('vision')+bYes('français');
+    const actifH=A.cloud_fournisseur==='openai'&&A.cloud_hybride===c.nom&&be==='hybride';
+    const actifQ=A.cloud_fournisseur==='openai'&&A.cloud_qualite===c.nom&&be==='qualite';
+    return `<tr class="${actifH||actifQ?'actif':''}"><td><b class="mono">${esc(c.nom)}</b><br><small class="note">${esc(c.role)}</small></td>
+      <td>${badges}</td><td class="mono">$${esc(c.prix_entree)} entrée · $${esc(c.prix_sortie)} sortie</td>
+      <td><div class="row"><button class="act ghost" data-nom="${esc(c.nom)}" onclick="activerCloud(this.dataset.nom,'hybride')">Hybride</button>
+      <button class="act" data-nom="${esc(c.nom)}" onclick="activerCloud(this.dataset.nom,'qualite')">Qualité</button></div></td></tr>`;
+  }).join('');
+  // ollama
+  $('#ollama-etat').textContent = d.ollama.joignable
+    ? `Ollama joignable (${d.ollama.hote}).` : `Ollama injoignable — lance « ollama serve ».`;
+  $('#llm').innerHTML = d.ollama.catalogue.map(c=>{
+    const badges=[c.tient_en_vram?bYes('tient en VRAM'):bNo('VRAM juste'),
+      c.tool_calling?bYes('tool calling'):bNo('pas d\'outils'),
+      c.francais?bYes('français'):'', `<span class="badge">${esc(c.licence)}</span>`].join('');
+    const act = c.installe
+      ? `<button class="act" data-nom="${esc(c.nom)}" onclick="activer('local',this.dataset.nom)">Activer</button>
+         <button class="act ghost" data-nom="${esc(c.nom)}" onclick="tester(this.dataset.nom,this)">Tester</button>
+         <button class="act danger" data-nom="${esc(c.nom)}" onclick="supprimer('ollama',this.dataset.nom,this)">Suppr.</button>`
+      : `<button class="act" data-nom="${esc(c.nom)}" onclick="installer('ollama',this.dataset.nom,this)">Installer</button>`;
+    return `<tr class="${A.local===c.nom?'actif':''}"><td class="mono">${esc(c.nom)}<br><small class="note">${esc(c.params)}</small></td>
+      <td>${badges}</td><td class="muted">${esc(c.taille_go)} Go</td>
+      <td><div class="row">${act}</div><div class="prog"><i></i></div><div class="msg"></div></td></tr>`;
+  }).join('');
+  // installes hors catalogue
+  const cat=new Set(d.ollama.catalogue.map(c=>c.nom));
+  const autres=d.ollama.installes.filter(m2=>!cat.has(m2.nom));
+  $('#llm-autres').innerHTML = autres.length? `<div style="margin-top:10px" class="muted">Autres modèles installés : `
+    + autres.map(m2=>`<span class="badge">${esc(m2.nom)} · ${esc(m2.taille_go)} Go
+      <a href="#" data-nom="${esc(m2.nom)}" onclick="activer('local',this.dataset.nom);return false" style="color:var(--acc)">activer</a></span>`).join(' ')+'</div>':'';
+  // whisper
+  $('#whisper').innerHTML = d.whisper.catalogue.map(c=>{
+    const badges=[c.francais_fiable?bYes('français fiable'):bNo('français faible'),
+      `<span class="badge">${esc(c.note)}</span>`].join('');
+    const act = c.installe
+      ? `<button class="act" data-nom="${esc(c.nom)}" onclick="activer('whisper',this.dataset.nom)">Activer</button>
+         <button class="act danger" data-nom="${esc(c.nom)}" onclick="supprimer('whisper',this.dataset.nom,this)">Suppr.</button>`
+      : `<button class="act" data-nom="${esc(c.nom)}" onclick="installer('whisper',this.dataset.nom,this)">Installer</button>`;
+    return `<tr class="${A.whisper===c.nom?'actif':''}"><td class="mono">${esc(c.nom)}</td><td>${badges}</td>
+      <td><div class="row">${act}</div><div class="prog"><i></i></div><div class="msg"></div></td></tr>`;
+  }).join('');
+}
+async function activer(backend,modele){
+  const r=await post('/api/panneau/modele-actif',{backend,modele});
+  flash(r); if(r.ok) setTimeout(chargerModeles,400);
+}
+async function activerCloud(modele,profil){
+  const r=await post('/api/panneau/modele-actif',{
+    backend:'cloud',fournisseur:'openai',modele,profil});
+  flash(r); if(r.ok){setTimeout(chargerModeles,300);setTimeout(chargerReglages,300);}
+}
+async function tester(nom,btn){
+  const cell=btn.closest('td'), msg=$('.msg',cell); msg.textContent='Test en cours…'; btn.disabled=true;
+  const r=await post('/api/panneau/ollama/tester',{nom}); btn.disabled=false;
+  if(!r.ok){msg.innerHTML=`<span style="color:var(--ko)">${esc(r.message||'échec')}</span>`;return;}
+  msg.innerHTML=`⏱ ${esc(r.latence_ms)} ms · ${r.tool_call_ok?bYes('appel d\'outil OK'):bNo('outil raté')}
+    <br><small class="note">« ${esc(r.phrase_fr||'')} »</small>`;
+}
+async function supprimer(type,nom,btn){
+  if(!confirm(`Supprimer ${nom} ?`))return; btn.disabled=true;
+  const r=await post(`/api/panneau/${type}/supprimer`,{nom}); flash(r,btn.closest('td'));
+  if(r.ok)setTimeout(chargerModeles,400);
+}
+async function installer(type,nom,btn){
+  const cell=btn.closest('td'), bar=$('.prog',cell), fill=$('.prog>i',cell), msg=$('.msg',cell);
+  btn.disabled=true; bar.style.display='block'; msg.textContent='Démarrage…';
+  const r=await post(`/api/panneau/${type}/pull`,{nom});
+  if(!r.ok){msg.textContent=r.message||'échec';btn.disabled=false;return;}
+  const key = type==='whisper'?`whisper:${nom}`:nom;
+  const timer=setInterval(async()=>{
+    const s=await api(`/api/panneau/pull-status?nom=${encodeURIComponent(key)}`);
+    fill.style.width=(s.pct||0)+'%'; msg.textContent=`${s.statut} — ${s.message||''}`;
+    if(s.statut==='termine'){clearInterval(timer);setTimeout(chargerModeles,600);}
+    if(s.statut==='erreur'){clearInterval(timer);btn.disabled=false;
+      msg.innerHTML=`<span style="color:var(--ko)">${esc(s.message)}</span>`;}
+  },1000);
+}
+
+/* ---------- ETAT ---------- */
+async function chargerEtat(){
+  const d=await api('/api/panneau/etat');
+  $('#chaine').innerHTML=d.chaine.map(c=>{
+    const cls=c.inconnu?'unk':(c.up?'up':'down'), et=c.inconnu?'inconnu':(c.up?'UP':'DOWN');
+    return `<div style="padding:6px 0"><span class="dot ${cls}"></span><b>${esc(c.nom)}</b>
+      <span class="badge ${c.up?'on':(c.inconnu?'':'off')}">${et}</span>
+      <span class="muted mono" style="margin-left:8px">${esc(c.detail||'')}</span></div>`;
+  }).join('');
+}
+async function reconnecter(){
+  $('#etat-msg').textContent='Reconnexion…';
+  const r=await post('/api/panneau/reconnecter-mcp',{});
+  $('#etat-msg').innerHTML=`<span style="color:var(--${r.ok?'ok':'ko'})">${esc(r.message)}</span>`;
+  setTimeout(chargerEtat,600);
+}
+async function chargerBudget(){
+  const d=await api('/api/panneau/budget');
+  const lignes=(obj,periode)=>Object.entries(obj||{}).map(([f,v])=>
+    `<tr><td>${esc(f)}</td><td class="muted">${periode}</td><td class="mono">${fmt(v.tin)}→${fmt(v.tout)}</td>
+     <td>${esc(v.appels)} appels</td><td><b>${eur(v.cout)}</b></td></tr>`).join('');
+  let html='<table><thead><tr><th>Fournisseur</th><th>Période</th><th>Tokens (in→out)</th><th></th><th>Coût est.</th></tr></thead><tbody>';
+  html+=lignes(d.jarvis.jour,'aujourd’hui')||'';
+  html+=lignes(d.jarvis.mois,'ce mois')||'';
+  if(d.twilio) html+=`<tr><td>Twilio (appels)</td><td class="muted">ce mois</td><td class="mono">${esc(d.twilio.appels||0)} appels / ${esc(d.twilio.minutes||0)} min</td><td></td><td><b>${eur(d.twilio.cout)}</b></td></tr>`;
+  html+='<tr id="budget-hermes"><td>Hermes</td><td class="muted">—</td><td class="mono">…</td><td></td><td>—</td></tr>';
+  html+='</tbody></table>';
+  if(!Object.keys(d.jarvis.jour||{}).length && !Object.keys(d.jarvis.mois||{}).length && !d.twilio)
+    html='<span class="muted">Aucune conso enregistrée pour l’instant (redémarre Jarvis pour activer le comptage).</span>'+html;
+  $('#budget').innerHTML=html;
+}
+async function chargerTaches(){
+  const d=await api('/api/panneau/taches');
+  const c=d.compte||{};
+  $('#taches-kpi').textContent=`${c.en_cours||0} en cours · ${c.validation||0} à valider · ${c.terminee||0} terminées`;
+  const T=d.taches||[];
+  if(!T.length){$('#taches').innerHTML='<span class="muted">Aucune délégation.</span>';return;}
+  const ic={en_cours:'⏳',terminee:'✅',en_attente_validation:'⚠️',echouee:'❌'};
+  const lib={en_cours:'en cours',terminee:'terminée',en_attente_validation:'à valider',echouee:'échouée'};
+  $('#taches').innerHTML=T.map(t=>{
+    const dur=t.duree!=null?t.duree+'s':(t.debut?Math.round((Date.now()/1000)-t.debut)+'s':'');
+    const tok=t.tokens!=null?' · '+fmt(t.tokens)+' tk':'';
+    const cout=t.cout!=null?' · $'+Number(t.cout).toFixed(4):'';
+    const modele=t.modele?' · '+esc(t.modele):'';
+    const res=t.resume?`<div class="muted" style="font-size:12px;margin-top:2px">${esc(t.resume||'')}</div>`:'';
+    return `<div style="padding:6px 0;border-bottom:1px solid var(--bord)">
+      <div>${ic[t.statut]||'•'} <b>${esc(t.tache||'')}</b></div>
+      <div class="mono muted" style="font-size:11px">session « ${esc(t.session)} » · ${esc(lib[t.statut]||t.statut)} · ${esc(dur)}${tok}${cout}${modele}</div>
+      ${res}</div>`;
+  }).join('');
+}
+
+async function chargerActivite(){
+  const d=await api('/api/panneau/hermes-activite');
+  // complète la ligne budget Hermes (tokens jour/mois)
+  const ij=d.insights_jour, im=d.insights_mois;
+  const rowH=$('#budget-hermes');
+  if(rowH && (ij||im)) rowH.innerHTML=`<td>Hermes (opus)</td><td class="muted">jour / 30j</td>
+    <td class="mono">${fmt(ij&&ij.tokens)} / ${fmt(im&&im.tokens)} tokens</td>
+    <td>${im?esc(im.sessions)+' sessions':''}</td><td class="muted">voir hermes insights</td>`;
+  const crons=(d.crons||[]).map(c=>`<div style="padding:3px 0">🗓 <b>${esc(c.nom)}</b>
+    <span class="mono muted">${esc(c.planning||'')}</span> → prochain : <span class="mono">${esc(c.prochain||'?')}</span></div>`).join('')
+    || '<span class="muted">Aucun cron.</span>';
+  const bloc=(t,txt)=>`<div style="margin-top:10px"><div class="muted" style="font-size:12px">${t}</div>`
+    +(txt?`<pre style="white-space:pre-wrap;background:var(--card2);border:1px solid var(--bord);border-radius:8px;padding:8px;overflow-x:auto;font-size:12px;margin:4px 0">${esc(txt)}</pre>`:'<span class="muted">—</span>')+'</div>';
+  $('#activite').innerHTML=`<div><b>Crons planifiés</b></div>${crons}`
+    + bloc('Derniers runs de cron', d.runs_texte)
+    + bloc('Tâches (kanban) en cours', d.taches_texte);
+}
+
+/* ---------- REGLAGES ---------- */
+const PERSO_LABEL={jarvis_sarcastique:'Jarvis (sarcastique)',neutre:'Neutre',concis:'Concis'};
+async function chargerReglages(){
+  const d=await api('/api/panneau/reglages');
+  // mode
+  const mode=d.mode==='cloud'?'hybride':d.mode;
+  $$('#seg-mode button').forEach(x=>{
+    x.classList.toggle('on',x.dataset.v===mode);
+    x.onclick=()=>setReglage('mode',x.dataset.v,x.closest('.card').querySelector('.msg')||x);
+  });
+  // micro / haut-parleur
+  const opt=(v,t,sel)=>`<option value="${esc(v)}" ${sel?'selected':''}>${esc(t)}</option>`;
+  $('#sel-micro').innerHTML=(d.entrees||[]).map(e=>opt(e.index,`#${e.index} · ${e.nom}`,e.index===d.micro)).join('')
+    || opt(d.micro,`micro #${d.micro}`,true);
+  const hpNul = d.haut_parleur===null||d.haut_parleur===undefined;
+  $('#sel-hp').innerHTML=opt('defaut','Sortie par défaut de Windows',hpNul)
+    +(d.sorties||[]).map(s=>opt(s.index,`#${s.index} · ${s.nom}`,!hpNul&&s.index===d.haut_parleur)).join('');
+  // moteur vocal + voix ElevenLabs
+  $$('#seg-tts button').forEach(x=>{
+    x.classList.toggle('on',x.dataset.v===(d.tts_moteur||'auto'));
+    x.onclick=()=>setReglage('tts.moteur',x.dataset.v,x);
+  });
+  const el=d.elevenlabs||{};
+  $('#elevenlabs-etat').innerHTML=!el.configure
+    ? '<span style="color:var(--ko)">Clé absente dans config.yaml.</span>'
+    : el.joignable?`<span style="color:var(--ok)">Connecté · ${esc((el.voix||[]).length)} voix.</span>`
+    : `<span style="color:var(--ko)">Connexion refusée : ${esc(el.erreur||'vérifie la clé')}</span>`;
+  let voix=(el.voix||[]).map(v=>opt(v.id,`${v.nom}${v.categorie?' · '+v.categorie:''}`,v.id===d.elevenlabs_voix)).join('');
+  if(!voix&&d.elevenlabs_voix) voix=opt(d.elevenlabs_voix,'Voix actuellement configurée',true);
+  $('#sel-eleven-voix').innerHTML=voix||opt('','Aucune voix disponible',true);
+  $('#sel-eleven-modele').value=d.elevenlabs_modele||'eleven_flash_v2_5';
+  // personnalite
+  $('#sel-perso').innerHTML=(d.personnalites||[]).map(p=>opt(p,PERSO_LABEL[p]||p,p===d.personnalite)).join('');
+  // sliders
+  $('#rng-suite').value=d.duree_suite; $('#val-suite').textContent=d.duree_suite+' s';
+  $('#rng-seuil').value=d.seuil_reveil; $('#val-seuil').textContent=(+d.seuil_reveil).toFixed(2);
+}
+async function setReglage(cle,valeur,cibleOuBtn){
+  // pour le segment mode : refléter la sélection tout de suite
+  if(cle==='mode') $$('#seg-mode button').forEach(x=>x.classList.toggle('on',x.dataset.v===valeur));
+  const r=await post('/api/panneau/reglage',{cle,valeur});
+  if(cle==='tts.moteur') $$('#seg-tts button').forEach(x=>x.classList.toggle('on',x.dataset.v===valeur));
+  const zone={'mode':'#audio-msg','audio.micro':'#audio-msg','audio.haut_parleur':'#audio-msg',
+    'assistant.personnalite':'#voix-msg','assistant.duree_suite':'#voix-msg',
+    'assistant.seuil_reveil':'#wake-msg','tts.moteur':'#tts-msg',
+    'elevenlabs.voix':'#tts-msg','elevenlabs.modele':'#tts-msg'}[cle];
+  const el=zone?$(zone):null;
+  if(el) el.innerHTML=`<span style="color:var(--${r.ok?'ok':'ko'})">${esc(r.message||'')}</span>`;
+  if(r.ok&&cle==='mode') setTimeout(chargerModeles,250);
+}
+async function testerVoix(){
+  const r=await post('/api/panneau/tester-voix',{});
+  $('#tts-msg').innerHTML=`<span style="color:var(--${r.ok?'ok':'ko'})">${esc(r.message||'')}</span>`;
+}
+
+/* ---------- PERMISSIONS ---------- */
+async function chargerPerms(){
+  const d=await api('/api/panneau/permissions');
+  $('#n3').innerHTML=`🔒 <b>Règle N3 (verrouillée dans le code)</b><br>${esc(d.regle_n3)}`;
+  $('#perm-kpi').innerHTML=`
+    <div class="kpi"><div class="v">${esc(d.compte.total)}</div><div class="l">outils au total</div></div>
+    <div class="kpi"><div class="v">${esc(d.compte.n1)}</div><div class="l">N1 sûr (local + iPhone)</div></div>
+    <div class="kpi"><div class="v">${esc(d.compte.n2)}</div><div class="l">N2 sensible (${esc(d.compte.toujours)} en « toujours »)</div></div>
+    <div class="kpi"><div class="v">${esc(d.compte.n3)}</div><div class="l">N3 critique 🔒</div></div>
+    <div class="kpi"><div class="v">${esc(d.compte.mcp_expose)}</div><div class="l">exposés à Hermes (MCP)</div></div>`;
+  $('#perm-note').textContent=d.note_n8;
+  $('#mounts').innerHTML = (d.hermes_montages||[]).map(m=>{
+    const ro=m.endsWith(':ro'); return `<div style="padding:3px 0"><span class="badge ${ro?'':'off'}">${ro?'lecture seule':'lecture+écriture'}</span> <span class="mono">${esc(m)}</span></div>`;
+  }).join('') || '<span class="muted">Aucun montage détecté.</span>';
+  $('#outils').innerHTML=d.outils.map(o=>`<tr>
+    <td class="mono">${esc(o.nom)}</td>
+    <td>${nivBadge(o.niveau)}</td>
+    <td>${o.mcp_expose?bYes('oui'):'<span class="badge">non</span>'}</td>
+    <td>${confCell(o)}</td>
+    <td class="muted">${esc(o.description||'')}</td></tr>`).join('');
+}
+function nivBadge(n){
+  if(n==='N1')return '<span class="badge on">N1</span>';
+  if(n==='N2')return '<span class="badge" style="background:#2a2410;color:#e9cf7a;border-color:#5a4a12">N2</span>';
+  if(n==='N3')return '<span class="badge off">N3 🔒</span>';
+  return `<span class="badge">${esc(n)}</span>`;
+}
+function confCell(o){
+  if(!o.confirmation)return '<span class="badge">non</span>';
+  if(o.niveau==='N3')return '<span class="badge off">requise 🔒</span>';
+  // N2
+  if(o.toujours)return `<span class="badge on">toujours ✓</span>
+    <button class="act ghost" style="padding:2px 8px" data-nom="${esc(o.nom)}" onclick="revoquer(this.dataset.nom,this)">Révoquer</button>`;
+  return '<span class="badge on">requise</span>';
+}
+async function revoquer(nom,btn){
+  btn.disabled=true;
+  const r=await post('/api/panneau/permissions/revoquer',{nom});
+  setTimeout(chargerPerms,300);
+}
+
+function flash(r,cell){
+  const el = cell? $('.msg',cell) : $('#etat-msg');
+  if(el) el.innerHTML=`<span style="color:var(--${r.ok?'ok':'ko'})">${esc(r.message||'')}</span>`;
+}
+chargerModeles();
+</script>
+</body>
+</html>

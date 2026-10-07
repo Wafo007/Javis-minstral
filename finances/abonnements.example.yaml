@@ -1,0 +1,41 @@
+# Abonnements — copie ce fichier en abonnements.yaml et mets TES valeurs.
+# abonnements.yaml n'est PAS versionné (dossier finances/ gitignoré) : tout reste chez toi.
+#
+# Champs par abonnement :
+#   service       : nom affiché (obligatoire)
+#   montant       : montant du prélèvement en € (obligatoire)
+#   periodicite   : mensuel | annuel | trimestriel | semestriel | hebdomadaire  (défaut mensuel)
+#   jour          : jour du mois du prélèvement (1-28) — pour le mensuel
+#   date          : OU une date d'ancrage AAAA-MM-JJ (pour annuel/trimestriel : la
+#                   prochaine échéance est calculée en avançant d'une période)
+#   categorie     : libre (Streaming, Musique, Logiciels, Sport, Cloud, Téléphonie...)
+
+- service: Netflix
+  montant: 13.49
+  periodicite: mensuel
+  jour: 5
+  categorie: Streaming
+
+- service: Spotify
+  montant: 10.99
+  periodicite: mensuel
+  jour: 12
+  categorie: Musique
+
+- service: iCloud+
+  montant: 2.99
+  periodicite: mensuel
+  jour: 3
+  categorie: Cloud
+
+- service: Adobe Creative Cloud
+  montant: 719.28
+  periodicite: annuel
+  date: 2026-02-20
+  categorie: Logiciels
+
+- service: Salle de sport
+  montant: 29.99
+  periodicite: mensuel
+  jour: 1
+  categorie: Sport

@@ -1,0 +1,21 @@
+# Config générique — copier en config.yaml puis renseigner les valeurs locales.
+pc_url: ""                      # ex. ws://<ADRESSE_LAN_DU_PC>:8791/satellite
+satellite_id: ""                # doit exister côté PC (config.yaml -> satellites[].id)
+token: ""                      # le meme token que cote PC pour ce satellite
+# Peripheriques audio (indices : `python -c "import sounddevice as sd; print(sd.query_devices())"`)
+micro: null                    # null = micro par defaut ; sinon l'index
+haut_parleur: null             # null = sortie par defaut ; sinon l'index
+# Sortie ALSA partagee (facultatif, utile avec Spotify Connect/Raspotify)
+pcm_sortie_alsa: ""            # ex. jarvis_audio ; vide = sortie PortAudio ci-dessus
+alsa_config_path: ""           # ex. /etc/asound.conf si le PCM y est declare
+# Reglages capture (facultatif)
+seuil_reveil: 0.5              # sensibilite "Hey Jarvis" (0.3 facile .. 0.7 strict)
+gain_reveil: 1.0               # amplification pour le wake uniquement (utile si micro faible)
+gain_audio: 1.0                # amplification de la question envoyee a Whisper
+seuil_silence: 0.010           # niveau en dessous duquel c'est du silence
+silence_fin: 1.0               # secondes de silence = fin de phrase
+attente_parole: 3.0            # délai pour commencer la question après le bip
+attente_arbitrage_reveil: 4.0  # attend l'arbitrage + le « Oui ? » vocal du PC
+fenetre_relance: 8.0           # délai pour reparler sans répéter « Hey Jarvis »
+blocs_purge_bip: 2             # 0 avec speakerphone anti-écho pour parler sans pause
+duree_max: 15                  # duree max d'un enonce (s)

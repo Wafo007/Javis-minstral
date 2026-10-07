@@ -1,0 +1,42 @@
+# Ambiances lumineuses (scènes) — exemples à copier dans config.yaml sous `modes:`
+#
+# Chaque mode est une LISTE d'étapes jouées dans l'ordre. Une étape agit sur une
+# pièce Hue (le nom tel qu'il apparaît dans ton app Hue, ou "toutes") :
+#   - eteindre: true          -> éteint la pièce
+#   - allumer: true           -> allume la pièce
+#   - couleur: "orange"       -> change la couleur (allume si besoin)
+#   - luminosite: 30          -> règle la luminosité en % (0-100)
+#
+# Presets INTÉGRÉS (pas besoin de les recopier ; redéfinis-les ici pour les changer) :
+#   off    -> tout éteindre           (« tout éteindre », « je m'en vais »)
+#   retour -> tout allumer à 30 %      (« je reviens »)
+#   film   -> tout éteindre + salon orange 15 %   (« mode film »)
+#   stream -> salon allumé à 80 %      (« mode stream »)
+#
+# Déclenchés à la voix par leur nom : « mode <nom> ». Ajoute les tiens :
+
+modes:
+  # Redéfinition d'un preset intégré (ex. un "film" plus chaleureux) :
+  film:
+    - {piece: "toutes", eteindre: true}
+    - {piece: "salon", couleur: "orange", luminosite: 12}
+    - {piece: "chambre", couleur: "rouge", luminosite: 8}
+
+  # Ambiances personnalisées :
+  gaming:
+    - {piece: "salon", couleur: "bleu", luminosite: 60}
+    - {piece: "bureau", couleur: "violet", luminosite: 70}
+
+  cosy:
+    - {piece: "toutes", couleur: "orange", luminosite: 25}
+
+  concentration:
+    - {piece: "bureau", allumer: true, luminosite: 100}
+    - {piece: "salon", eteindre: true}
+
+  reveil:
+    - {piece: "chambre", couleur: "orange", luminosite: 20}
+
+  fete:
+    - {piece: "salon", couleur: "rose", luminosite: 80}
+    - {piece: "chambre", couleur: "cyan", luminosite: 80}

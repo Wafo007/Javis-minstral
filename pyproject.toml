@@ -1,0 +1,69 @@
+[project]
+name = "jarvis-vocal"
+version = "0.1.0"
+description = "Assistant vocal local en francais, pilote par OpenAI ou Ollama (domotique, PC, web, communication)."
+readme = "README.md"
+authors = [
+    { name = "jarvis-vocal" }
+]
+requires-python = ">=3.13"
+dependencies = [
+    "alexapy>=1.30.0",
+    "anthropic>=0.120.2",
+    "audioop-lts>=0.2.2",
+    # Windows ARM64 (Snapdragon) : ces paquets n'y ont aucune roue, donc pas
+    # d'installation possible sans compilateur. Jarvis s'en passe : transcription
+    # par OpenAI (core/transcription.py), voix ElevenLabs en PCM brut ou voix
+    # Windows, recherche web DuckDuckGo indisponible. Marqueur = tout sauf Windows ARM64.
+    "ddgs>=9.14.4 ; sys_platform != 'win32' or platform_machine != 'ARM64'",
+    "faster-whisper>=1.2.1 ; sys_platform != 'win32' or platform_machine != 'ARM64'",
+    "miniaudio>=1.71 ; sys_platform != 'win32' or platform_machine != 'ARM64'",
+    "piper-tts>=1.3.0 ; sys_platform != 'win32' or platform_machine != 'ARM64'",
+    # cryptography n'a plus de roue Windows ARM64 apres la 46.0.3 : celle-ci la-bas
+    # seulement, la version a jour partout ailleurs (deux branches dans uv.lock).
+    "cryptography==46.0.3 ; sys_platform == 'win32' and platform_machine == 'ARM64'",
+    "cryptography>=50.0.0 ; sys_platform != 'win32' or platform_machine != 'ARM64'",
+    "discord-py>=2.7.1",
+    "fastapi>=0.141.1",
+    "google-api-python-client>=2.198.0",
+    "google-auth-httplib2>=0.4.1",
+    "google-auth-oauthlib>=1.4.0",
+    "icalendar>=7.2.2",
+    "keyboard>=0.13.5",
+    "mcp>=2.0.0",
+    "mss>=10.2.0",
+    "numpy>=2.5.1",
+    # Bibliothèques CUDA pour faster-whisper sur GPU NVIDIA : uniquement là où
+    # les wheels existent (Windows/Linux x86_64). Skipées sur macOS et ARM,
+    # sinon `pip install` échoue (aucune wheel) — faster-whisper tourne alors en
+    # CPU, sans ces paquets. Marqueur = pas macOS ET machine x86_64/AMD64.
+    "nvidia-cublas-cu12>=12.9.2.10 ; platform_system != 'Darwin' and (platform_machine == 'x86_64' or platform_machine == 'AMD64')",
+    "nvidia-cudnn-cu12>=9.24.0.43 ; platform_system != 'Darwin' and (platform_machine == 'x86_64' or platform_machine == 'AMD64')",
+    "nvidia-ml-py>=13.610.43 ; platform_system != 'Darwin' and (platform_machine == 'x86_64' or platform_machine == 'AMD64')",
+    "obsws-python>=1.8.0",
+    "ollama>=0.6.2",
+    "onnxruntime>=1.28.0",
+    "openai>=3.13.0",
+    "openwakeword>=0.4.0",
+    "pillow>=12.3.0",
+    "playwright>=1.62.0",
+    "psutil>=7.2.2",
+    "pydantic>=2.13.0",
+    "pypdf>=6.0.0",
+    "pyngrok>=8.1.2",
+    "pyyaml>=6.0.3",
+    "soundcard>=0.4.6",
+    "sounddevice>=0.5.5",
+    "truststore>=0.10.4",
+    "twilio>=9.10.9",
+    "websockets>=17.0.1",
+]
+
+[project.scripts]
+jarvis-vocal = "jarvis_vocal:main"
+signal-matin = "jarvis_vocal.signal_matin_cli:main"
+generate-morning-paper = "jarvis_vocal.signal_matin_cli:main"
+
+[build-system]
+requires = ["uv_build>=0.12.1,<0.13.0"]
+build-backend = "uv_build"
