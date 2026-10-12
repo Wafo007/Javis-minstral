@@ -385,9 +385,11 @@ const S = {
 
 const LIBELLES = {
   veille: "VEILLE",
-  ecoute: "ECOUTE",
-  reflexion: "REFLEXION",
-  parole: "PAROLE",
+  ecoute: "ECOUTE...",
+  reflexion: "REFLEXION...",
+  execution: "EXECUTION...",
+  parole: "REPONSE...",
+  erreur: "ERREUR",
   muet: "MICRO COUPE",
 };
 
@@ -398,6 +400,8 @@ const COULEURS = {
   reflexion: { r: 138, g: 108, b: 255 },
   parole:    { r: 255, g: 176, b: 62  },
   muet:      { r: 255, g: 107, b: 107 },
+  execution: { r: 90,  g: 220, b: 140 },
+  erreur:    { r: 255, g: 70,  b: 70  },
 };
 
 let couleur = Object.assign({}, COULEURS.veille);  // couleur affichee, lissee
@@ -778,6 +782,10 @@ function appliquer(ev) {
     case "etat":
       S.etat = ev.v;
       majReleve();
+      break;
+    case "mode":                       // mode d'usage : HUD estompe en mode nuit / gaming / DND
+      document.body.style.opacity = ev.d ? "0.45" : "1";
+      document.title = "Jarvis" + (ev.v && ev.v !== "normal" ? " · " + ev.v : "");
       break;
     case "niveau":
       S.niveauCible = ev.v;

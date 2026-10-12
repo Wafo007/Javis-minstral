@@ -274,6 +274,53 @@ Ajouter un outil = un seul fichier dans `tools/` avec un décorateur `@outil(...
 est auto-découvert, aucun câblage. Issues et PR bienvenues. Merci de ne jamais committer
 de vrais secrets (vois `.gitignore`).
 
+## 🧑‍💼 Assistant personnel : salutation, voix, modes, routines
+
+### Salutation après « Hey Jarvis »
+Dire « Hey Jarvis » déclenche une salutation courte **sans appel au LLM** : « Bonjour Wafo Arold. », « Bonsoir Wafo Arold, je vous écoute. », « Ravi de vous revoir, Wafo Arold. » (après une absence). Bonjour jusqu'à 18 h, Bonsoir ensuite ; plus sobre en modes nuit/travail/gaming/ne pas déranger. Après la salutation, Jarvis attend ~0,4 s et vide le tampon micro pour **ne pas se réentendre**. Les salutations déjà synthétisées sont gardées en mémoire (instantanées dès la 2ᵉ fois ; la 1ʳᵉ dépend du moteur TTS). Réglages : bloc `accueil:` et `assistant.nom_utilisateur`. Pour parler dès le réveil, attendez la fin de la salutation.
+
+### Voix naturelle (nettoyage du texte avant le TTS)
+`core/voix_naturelle.py` crée une **version vocale** du texte : Markdown, emojis, URLs, balises, tableaux et symboles retirés ; « 24 °C » → « 24 degrés », « 72 % » → « 72 pour cent », « 250 Mo » → « 250 mégaoctets », « 14h30 » → « 14 heures 30 », « 05/03/2025 » → « 5 mars 2025 », « 3.14 » → « 3 virgule 14 », e-mails dits « x arobase y point com ». Le texte affiché (HUD, overlay) **n'est pas modifié**. Limite : le texte est nettoyé phrase par phrase ; un bloc de code étalé sur plusieurs phrases lues en flux peut être mal regroupé.
+
+### Voix
+- « Quelles voix sont disponibles ? » · « Utilise la voix féminine / masculine / française / anglaise / *nom* » · « Reviens à la voix précédente ».
+- Sources : profils de `tts.profils` (config.yaml, **aucun identifiant n'est inventé**), voix Windows installées (détectées), voix du compte ElevenLabs (si clé valide).
+- Le choix est mémorisé (`notes/.voix_profil.json`). Un mode peut avoir sa voix : `modes_usage.nuit.voix: douce`.
+- Limite : la vitesse de voix s'applique à Windows et Kokoro (pas à ElevenLabs/Piper).
+
+### Modes : Normal · Travail · Gaming · Nuit · Ne pas déranger
+Commandes : « Active le mode nuit », « Désactive le mode nuit », « Passe en mode gaming », « Active le mode travail », « Active le mode ne pas déranger », « Retour au mode normal », « Quel mode ? ». Compris **sans LLM**, mémorisés dans `notes/.mode_usage.json`.
+
+| Mode | Volume | Voix | Réponses | Annonces spontanées | HUD |
+|---|---|---|---|---|---|
+| Normal | 100 % | normale | normales | toutes | normal |
+| Travail | 100 % | normale | brèves, ton pro | importantes | normal |
+| Gaming | 100 % (voix un peu plus rapide) | normale | très courtes | importantes | discret |
+| Nuit | 50 % | plus lente, voix `nuit` si définie | très courtes | importantes | discret |
+| Ne pas déranger | 100 % | normale | brèves | **aucune** (sauf minuteurs/alarmes) | discret |
+
+Mode nuit automatique : `mode_nuit.auto: true` + `heure_debut`/`heure_fin` (ex. 23:00 → 07:00). « Désactive le mode nuit » pendant la plage le coupe jusqu'à la fin de celle-ci. « Active/Désactive la proactivité » force les annonces spontanées on/off. Les appels `voix.parler(texte, importance=...)` (`info`, `normal`, `important`, `critique`) respectent le mode ; sans précision, un message reste `critique` (donc jamais supprimé).
+
+### Contexte, corrections, commandes multiples
+Jarvis garde **en mémoire vive seulement** (jamais sur disque) les 3 dernières actions d'outils pendant 10 min et les donne au LLM : « Ouvre Chrome » puis « Non, Firefox », « Monte le volume à 50 » puis « Finalement 30 », « Et après-demain ? ». Les commandes multiples (« ouvre Chrome, lance YouTube et mets le volume à 30 % ») sont traitées par le LLM avec tous les outils d'un coup ; les commandes simples reçoivent une réponse de 3 à 6 mots (« Chrome est ouvert. »). Ces comportements reposent sur la consigne donnée au LLM : leur fiabilité dépend du modèle Mistral choisi. La mémoire long terme (`memory.json`) n'est pas modifiée.
+
+### Confirmations, erreurs, HUD
+Le système N2/N3 existant est conservé : seules les actions sensibles demandent confirmation ; « Oui », « Non », « Annule » sont compris. Les erreurs d'outils deviennent des phrases humaines (« Je n'ai pas trouvé ce fichier. », « Le service est temporairement indisponible. Je peux réessayer. ») ; le détail reste dans `logs/`. Le HUD affiche : VEILLE, ECOUTE…, REFLEXION…, EXECUTION…, REPONSE…, ERREUR (+ MICRO COUPE) et s'estompe en modes discrets.
+
+### Routines
+Dans `config.yaml`, bloc `routines:` (voir `config.example.yaml`) : « Jarvis, commence ma journée » peut activer le mode travail, ouvrir des applications et dire une phrase. Une routine **n'exécute jamais** un outil soumis à confirmation. Elle complète les scènes existantes (`scenes.example.yaml`).
+
+### Android : ce qui est réaliste
+Le projet Windows ne devient pas une appli Android. En revanche Jarvis a déjà de quoi accueillir un téléphone **sans refonte** :
+1. **Satellite** (`core/satellite.py`) : WebSocket `/satellite` + token, audio PCM 16 kHz vers le PC, réponses audio + état (`ecoute|reflexion|parole…`) + texte en retour. Une appli Android peut jouer exactement le rôle du Raspberry Pi : micro du téléphone, haut-parleur, affichage de l'état et du texte.
+2. **Pont HTTP** (`core/pont_iphone.py`, `/api/inbox`, en-tête `x-jarvis-token`) : envoi de commandes texte depuis n'importe quel client (Tasker, HTTP Shortcuts, PWA).
+3. **Serveur unifié** (`core/serveur.py`) prévu pour monter des PWA : un tableau de bord web (HUD, choix de voix, modes) accessible depuis le téléphone est l'étape la plus simple.
+
+Architecture recommandée : `Android (PWA ou appli) → Wi-Fi local ou tunnel → serveur Jarvis Windows (token obligatoire, connexions non autorisées refusées) → Mistral / outils / TTS`. Étapes : (a) PWA de commande + état + modes via le serveur unifié ; (b) appli Android « satellite » avec le protocole existant pour servir de micro ; (c) notifications. **Non implémenté ici** : aucune appli Android n'est livrée ; les routes HTTP de pilotage des modes/voix pour mobile restent à ajouter. Sécurité : token secret long, réseau local de préférence, pas d'exposition Internet sans tunnel authentifié.
+
+### Tests
+`python -m unittest tests.test_assistant_personnel` (35 tests, sans micro ni réseau) : wake word, salutation, nettoyage vocal, voix, modes, routines, contexte, erreurs, confirmations.
+
 ## 📄 Licence
 
 MIT — voir [LICENSE](LICENSE).

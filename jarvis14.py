@@ -306,6 +306,9 @@ def _jouer_audio(audio, frequence):
     """Joue un tableau int16 mono sur le haut-parleur, interruptible."""
     if _INTERRUPTION.is_set():
         return
+    volume = float(modes_usage.parametres().get("volume", 1.0) or 1.0)
+    if volume < 0.99:
+        audio = np.clip(audio.astype(np.float32) * volume, -32768, 32767).astype(np.int16)
     sd.play(audio, samplerate=frequence, device=_haut_parleur())
     while not _INTERRUPTION.is_set():
         courant = sd.get_stream()
@@ -316,7 +319,11 @@ def _jouer_audio(audio, frequence):
         sd.stop()
 
 
-def dire(texte, interruptible=True):
+_CACHE_VOIX = {}          # audio synthetise des salutations (instantane des la 2e fois)
+_MODE_APPLIQUE = [None]
+
+
+def dire(texte, interruptible=True, cache=False):
     """Prononce un texte via le provider TTS courant (ElevenLabs en cloud, Piper en
     local) ; repli sur la voix Windows (SAPI) si le provider est indisponible.
 
@@ -327,8 +334,19 @@ def dire(texte, interruptible=True):
         return                                          # la reponse s'affiche, pas de TTS.
     if _INTERRUPTION.is_set():
         return
+    _suivre_mode()
+    # Version VOIX du texte (sans Markdown/emoji/URL, unites en toutes lettres). L'affichage
+    # (HUD, overlay, historique) garde le texte complet : seule la parole est nettoyee.
+    texte = voix_naturelle.pour_la_voix(texte)
+    if not texte:
+        return
     from core.tts import tts
-    resultat = tts().synthetiser(texte)
+    cle = (tts().nom, getattr(tts(), "voix", None), modes_usage.mode_effectif(), texte)
+    resultat = _CACHE_VOIX.get(cle) if cache else None
+    if resultat is None:
+        resultat = tts().synthetiser(texte)
+        if cache and resultat is not None:
+            _CACHE_VOIX[cle] = resultat
     if interruptible:
         _PARLE.set()      # a partir d'ici Jarvis parle : on peut l'interrompre
     try:
@@ -352,16 +370,23 @@ def _dire_sapi(texte):
     if _INTERRUPTION.is_set():
         return
 
+    prm = modes_usage.parametres()
+    nom_voix, genre = voix_profils.selection_sapi()
+    q = lambda s: str(s or "").replace("'", "''")
+    debit = max(-10, min(10, round((float(prm.get("vitesse", 1.0) or 1.0) - 1.0) * 10)))
+    vol = max(0, min(100, int(100 * float(prm.get("volume", 1.0) or 1.0))))
     script = (
         "[Console]::InputEncoding = [Text.Encoding]::UTF8; "
         "$t = [Console]::In.ReadToEnd(); "
         "Add-Type -AssemblyName System.Speech; "
         "$s = New-Object System.Speech.Synthesis.SpeechSynthesizer; "
-        "$fr = $s.GetInstalledVoices() | "
-        "Where-Object { $_.VoiceInfo.Culture.Name -like 'fr*' } | "
-        "Select-Object -First 1; "
+        "$v = $s.GetInstalledVoices(); $fr = $null; "
+        f"if ('{q(nom_voix)}') {{ $fr = $v | Where-Object {{ $_.VoiceInfo.Name -eq '{q(nom_voix)}' }} | Select-Object -First 1 }}; "
+        f"if (-not $fr -and '{q(genre)}') {{ $g = if ('{q(genre)}' -eq 'f') {{ 'Female' }} else {{ 'Male' }}; "
+        "$fr = $v | Where-Object { $_.VoiceInfo.Gender -eq $g -and $_.VoiceInfo.Culture.Name -like 'fr*' } | Select-Object -First 1 }; "
+        "if (-not $fr) { $fr = $v | Where-Object { $_.VoiceInfo.Culture.Name -like 'fr*' } | Select-Object -First 1 }; "
         "if ($fr) { $s.SelectVoice($fr.VoiceInfo.Name) }; "
-        "$s.Rate = 1; "
+        f"$s.Rate = {debit}; $s.Volume = {vol}; "
         "$s.Speak($t)"
     )
 
@@ -394,6 +419,8 @@ RESIDUS = (
 
 # Ce que Whisper invente quand il n'entend que du silence (liste partagee avec les satellites).
 from core.hallucinations import HALLUCINATIONS  # noqa: E402
+from core import (accueil, commandes_locales, contexte, erreurs, modes_usage,  # noqa: E402
+                  voix_naturelle, voix_profils)
 
 # Mots qui coupent la parole PUIS relancent l'ecoute (tu veux redire quelque chose).
 MOTS_RELANCE = (
@@ -526,6 +553,8 @@ def _executer_outils(blocs):
         arguments = bloc.input or {}
         outil = registre.get(nom)
         debut_outil = time.monotonic()
+        _hud("etat", "execution")
+        contexte.noter_action(nom, arguments)
 
         if outil is None:
             resultat = f"Outil inconnu : {nom}"
@@ -536,9 +565,10 @@ def _executer_outils(blocs):
         else:
             try:
                 resultat = registre.executer(outil, arguments)
-            except Exception:
-                LOG.exception("outil %s a plante", nom)
-                resultat = "Desole, je n'ai pas reussi a faire ca."
+            except Exception as exc:
+                LOG.exception("outil %s a plante", nom)          # detail technique : logs seulement
+                resultat = erreurs.message_humain(exc, nom)
+                _hud("etat", "erreur")
 
         LOG.info("outil %s termine en %.3fs (type=%s)", nom,
                  time.monotonic() - debut_outil, type(resultat).__name__)
@@ -662,6 +692,20 @@ def repondre(historique):
     les outils a confirmation, prononce l'annonce et renvoie SENTINEL_CONFIRM
     (la suite est geree par traiter, qui capture la reponse oui/non).
     """
+    question_locale = next((m.get("content") for m in reversed(historique)
+                            if m.get("role") == "user" and isinstance(m.get("content"), str)), "")
+    try:
+        locale = commandes_locales.essayer(question_locale)
+    except Exception:
+        LOG.exception("commandes locales")
+        locale = None
+    if locale:
+        _hud("etat", "parole")
+        historique.append({"role": "assistant", "content": locale})
+        if not _INTERRUPTION.is_set():
+            dire(locale)
+        return locale
+
     prioritaire = _repondre_route_prioritaire_commune(historique)
     if prioritaire is not None:
         return prioritaire
@@ -715,7 +759,8 @@ def repondre(historique):
         try:
             debut_llm = time.monotonic()
             reponse = fournisseur.repondre(
-                SYSTEME_COURANT, historique,
+                SYSTEME_COURANT + "\n\n" + modes_usage.consigne_systeme() + " " + contexte.consigne(),
+                historique,
                 registre.schemas_api(
                     local_seulement=(fournisseur.nom == "Ollama"),
                     modules=modules_outils))
@@ -957,11 +1002,48 @@ def capturer(flux, tampon, duree_min=0.6, attente_debut=None):
     return audio if len(audio) >= TAUX * duree_min else None
 
 
-def _apres_parole(flux, tampon):
+def _appliquer_mode(mode, params):
+    """Ce qui suit un changement de mode : voix liee au mode, HUD discret, ambiance lumineuse."""
+    _MODE_APPLIQUE[0] = mode
+    try:
+        voix_profils.appliquer_pour_mode(params.get("voix"))
+    except Exception:
+        LOG.exception("mode: voix")
+    _hud("mode_usage", mode, params.get("hud") == "discret")
+    lum = params.get("lumieres")
+    if lum:
+        try:
+            from tools import modes as _modes_lumieres
+            _modes_lumieres.activer(lum)
+        except Exception:
+            LOG.exception("mode: lumieres")
+
+
+def _suivre_mode():
+    """Bascule automatique (plage nuit) : applique voix/HUD des que le mode effectif change."""
+    courant = modes_usage.mode_effectif()
+    if courant != _MODE_APPLIQUE[0]:
+        _appliquer_mode(courant, modes_usage.parametres(courant))
+
+
+def _saluer(flux, tampon):
+    """« Hey Jarvis » -> salutation courte, SANS LLM, puis fenetre de protection anti-echo."""
+    phrase = accueil.salutation(mode=modes_usage.mode_effectif())
+    if not phrase:
+        bip()
+        return
+    _hud("etat", "parole")
+    print(f"  [accueil] {phrase}")
+    dire(phrase, interruptible=False, cache=True)
+    _apres_parole(flux, tampon, delai=accueil.delai_apres())   # ne pas reentendre sa salutation
+    _hud("etat", "ecoute")
+
+
+def _apres_parole(flux, tampon, delai=None):
     """Apres que Jarvis a fini de parler : attend que l'echo des haut-parleurs retombe,
     puis jette l'audio accumule pendant qu'il parlait. Sans ca, le micro enregistre la fin
     de sa propre reponse comme si c'etait une nouvelle question."""
-    time.sleep(float(config.reglage("assistant.delai_apres_parole", 0.8)))
+    time.sleep(float(config.reglage("assistant.delai_apres_parole", 0.8)) if delai is None else delai)
     try:
         for _ in range(50):
             dispo = int(flux.read_available)
@@ -1209,6 +1291,7 @@ def traiter(audio, whisper, historique, flux, reveil):
     _hud_status()
     print(f"  Jarvis : {texte}\n")
     _tronquer(historique)
+    accueil.noter_interaction()
     return relancer
 
 
@@ -1475,6 +1558,14 @@ def main():
         except Exception:
             LOG.exception("overlay: demarrage")
 
+    try:
+        voix_profils.restaurer()
+        modes_usage.definir_rappel(_appliquer_mode)
+        _suivre_mode()
+        print(f"{modes_usage.description()}")
+    except Exception:
+        LOG.exception("modes/voix: initialisation")
+
     print('\nPret. Dites "Hey Jarvis". Ctrl+C pour quitter.\n')
     print('Vous pouvez le couper en redisant "Hey Jarvis" pendant qu\'il parle.\n')
 
@@ -1523,7 +1614,7 @@ def main():
                     # devant, en fond pour ne retarder ni le bip ni l'ecoute.
                     threading.Thread(target=_hud, args=("mettre_au_premier_plan",),
                                      daemon=True).start()
-                bip()
+                _saluer(flux, tampon)
 
             audio = capturer(flux, tampon)
             if audio is None:

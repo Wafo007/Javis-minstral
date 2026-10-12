@@ -192,7 +192,7 @@ def scene_au_demarrage(forcer=False):
     try:
         from core import voix
         if texte:
-            voix.parler(texte)
+            voix.parler(texte, importance="info")
     except Exception:
         pass
     return statut

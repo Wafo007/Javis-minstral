@@ -35,6 +35,21 @@ LOG = logging.getLogger("jarvis")
 _RACINE = Path(__file__).resolve().parent.parent
 
 
+_SURCHARGE = {}      # reglages TTS temporaires (profil de voix choisi a la voix)
+
+
+def _reg(chemin, defaut=None):
+    """Comme reglage(), mais un profil de voix actif a la priorite."""
+    return _SURCHARGE[chemin] if chemin in _SURCHARGE else reglage(chemin, defaut)
+
+
+def surcharger(valeurs):
+    """Remplace les reglages de voix (None/{} = retour a config.yaml) et reconstruit le provider."""
+    _SURCHARGE.clear()
+    _SURCHARGE.update({k: v for k, v in (valeurs or {}).items() if v not in (None, "")})
+    reinitialiser()
+
+
 class ProviderTTS:
     nom = "?"
 
@@ -58,7 +73,7 @@ class ElevenLabsProvider(ProviderTTS):
 
     def __init__(self):
         self.cle = reglage("elevenlabs.cle", "")
-        self.voix = reglage("elevenlabs.voix", "")
+        self.voix = _reg("elevenlabs.voix", "")
         self.modele = reglage("elevenlabs.modele", "eleven_flash_v2_5")
         self._voix_resolue = None
 
@@ -131,7 +146,7 @@ class PiperProvider(ProviderTTS):
     nom = "Piper"
 
     def __init__(self):
-        self.modele = reglage("piper.modele", "")
+        self.modele = _reg("piper.modele", "")
         self._voix = None
 
     def _chemin(self):
@@ -199,7 +214,7 @@ class KokoroProvider(ProviderTTS):
     def __init__(self):
         self.modele = reglage("kokoro.modele", "")
         self.voix = reglage("kokoro.voix", "")
-        self.voix_nom = reglage("kokoro.voix_nom", "ff_siwis")
+        self.voix_nom = _reg("kokoro.voix_nom", "ff_siwis")
         self._k = None
 
     def disponible(self):
@@ -218,7 +233,7 @@ class KokoroProvider(ProviderTTS):
         try:
             if self._k is None:
                 self._k = Kokoro(self.modele, self.voix)
-            samples, freq = self._k.create(texte, voice=self.voix_nom, speed=1.0, lang="fr-fr")
+            samples, freq = self._k.create(texte, voice=self.voix_nom, speed=float(_reg("tts.vitesse", 1.0) or 1.0), lang="fr-fr")
             audio = (np.asarray(samples) * 32767).astype(np.int16)
             return audio, freq
         except Exception as e:
@@ -242,7 +257,7 @@ def tts():
     if _TTS is None:
         from core.routage import mode_actuel
         m = mode_actuel()
-        moteur = (reglage("tts.moteur", "auto") or "auto").lower()
+        moteur = (_reg("tts.moteur", "auto") or "auto").lower()
         if m == "local":
             if moteur in {"auto", "elevenlabs"}:
                 moteur = (reglage("voix_locale", "piper") or "piper").lower()

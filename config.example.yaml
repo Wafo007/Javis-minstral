@@ -14,8 +14,8 @@ cloud:
 
 mistral:
   cle: ""                    # https://console.mistral.ai/ -> API keys
-  modele: "mistral-small-latest"       # mode hybride : quotidien + function calling
-  modele_qualite: "mistral-large-latest" # mode qualite (selon disponibilite du compte)
+  modele: "ministral-8b-latest"       # (mistral-small est a 0 req/min sur le plan gratuit) mode hybride : quotidien + function calling
+  modele_qualite: "open-mistral-nemo" # mode qualite (selon disponibilite du compte)
   base_url: "https://api.mistral.ai/v1"
   max_tokens: 1024
   temperature: 0.3
@@ -71,6 +71,12 @@ elevenlabs:                    # facultatif ; sans cle, Jarvis garde la voix Win
 tts:
   moteur: auto                 # auto | elevenlabs | piper | kokoro | windows
                                # auto = ElevenLabs en cloud, Piper/Kokoro en local
+  # voix_defaut: jarvis          # profil utilise par defaut (voir `profils`)
+  # profils:                     # voix choisissables a la voix : « utilise la voix feminine / douce / X »
+  #   jarvis: {moteur: elevenlabs, voix: "<voice_id ElevenLabs>", genre: m, langue: fr}
+  #   douce:  {moteur: windows, sapi_voix: "Microsoft Hortense Desktop", genre: f, langue: fr}
+  #   locale: {moteur: piper, modele: "C:/chemin/fr_FR.onnx", genre: f, langue: fr}
+  # Les voix Windows installees (et celles du compte ElevenLabs) sont detectees seules.
 
 hue:                           # Philips Hue, API locale
   pont: "192.168.1.XXX"        # adresse du pont sur ton reseau
@@ -98,7 +104,8 @@ whisper:
   modele: "small"                 # recommandé CPU/8 Go ; medium consomme beaucoup plus de RAM
 
 stt:                            # moteur de reconnaissance vocale (voir core/transcription.py)
-  moteur: "auto"                # auto : Whisper local, sinon OpenAI | local : jamais de cloud | openai : toujours OpenAI
+  moteur: "mistral"             # mistral : Voxtral (cle mistral.cle, repli Vosk) | vosk : 100 % local sans Visual C++
+                                # auto : Whisper local, sinon Mistral/OpenAI/Vosk | local : jamais de cloud | openai : toujours OpenAI
                                 # le cloud n'est jamais utilise en mode local ; l'audio de la phrase part alors chez OpenAI
   modele_cloud: "gpt-4o-mini-transcribe"   # modele de transcription OpenAI (repli, ex. Windows ARM64)
 
@@ -120,6 +127,9 @@ assistant:
   scene_extinction: "off"      # scene lumieres jouee AVANT d'eteindre le PC ("eteins le PC")
   delai_extinction: 30         # secondes avant l'arret (annulable : "annule l'extinction")
   seuil_reveil: 0.5            # sensibilite du mot d'activation (0.3 = facile, 0.7 = strict)
+  # wake: voir bloc `wake:` plus bas
+  # interruption_par_wake: false   # true = couper Jarvis en redisant « Jarvis » (risque de se couper tout seul sans casque)
+  delai_apres_parole: 0.8      # secondes d'attente apres sa voix avant de re-ecouter (augmente si l'echo est repris)
   seuil_interruption: 0.7      # sensibilite pour couper Jarvis pendant qu'il parle (plus haut = plus strict)
   # Seuils de NIVEAU (RMS) : dependent du gain du micro. Par defaut AUTO-CALIBRES
   # au demarrage selon le bruit ambiant. Decommente pour figer une valeur (ca
@@ -526,3 +536,44 @@ satellite_lan:
   delai_accuse_reveil: 2.5     # au-delà, le satellite utilise son bip local
   accuse_immediat: true        # accusé contextuel seulement pour une tâche lente
   progression_traitement_apres: 4.0     # annonce l'étape si le LLM cherche encore
+
+# Mot d'activation « Jarvis » (sans onnxruntime / sans Visual C++)
+wake:
+  moteur: vosk          # auto | vosk | whisper | openwakeword (vosk = sans Visual C++)
+  vosk_modele: vosk-model-small-fr-0.22   # telecharge auto au 1er lancement (~41 Mo)
+  whisper_modele: tiny  # tiny (rapide, ~75 Mo) | base (plus fiable)
+
+# --- Assistant personnel (salutation, modes, routines) -----------------------------
+# Nom prononce dans la salutation (assistant.nom_utilisateur, a ajouter dans le bloc assistant) :
+#   assistant:
+#     nom_utilisateur: "Wafo Arold"
+accueil:
+  actif: true                   # « Hey Jarvis » -> salutation immediate (aucun appel LLM)
+  variee: true                  # alterne les phrases (jamais deux fois la meme de suite)
+  absence_minutes: 240          # au-dela : « Ravi de vous revoir, <nom>. »
+  delai_apres: 0.4              # secondes de protection apres la salutation (anti-echo)
+  # phrases:                    # surcharge ; {salut} = Bonjour/Bonsoir, {nom} = ton nom
+  #   normal: ["{salut} {nom}, je vous ecoute."]
+  #   retour: ["Ravi de vous revoir, {nom}."]
+
+mode_nuit:
+  auto: false                   # true = mode nuit automatique sur la plage horaire
+  heure_debut: "23:00"
+  heure_fin: "07:00"
+  volume: 0.5                   # 0.0 a 1.0
+  vitesse: 0.92                 # voix Windows (et Kokoro) seulement
+
+# Reglages par mode (optionnel) : volume, vitesse, longueur (normale|courte|tres_courte),
+# proactif (tout|important|rien), hud (normal|discret), voix (nom de profil), lumieres (mode Hue).
+# modes_usage:
+#   nuit: {voix: douce, lumieres: film}
+#   gaming: {longueur: tres_courte, proactif: rien}
+
+# Routines : une phrase = plusieurs actions (outils existants ; jamais ceux qui demandent confirmation).
+# routines:
+#   commencer_journee:
+#     phrases: ["commence ma journee", "demarre ma journee"]
+#     mode: travail
+#     actions:
+#       - {outil: ouvrir_application, args: {nom: "Chrome"}}
+#     dire: "C'est parti, {nom}."

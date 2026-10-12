@@ -102,6 +102,13 @@ def etat(nom):
     _diffuser({"t": "etat", "v": nom})
 
 
+def mode_usage(nom, discret=False):
+    """Mode d'usage courant (nuit/travail/...) : le HUD s'estompe si `discret`."""
+    _ETAT["mode"] = nom
+    _ETAT["discret"] = bool(discret)
+    _diffuser({"t": "mode", "v": nom, "d": bool(discret)})
+
+
 def niveau(valeur):
     """Regle le niveau du micro, entre 0 et 1. Fait enfler le coeur."""
     v = max(0.0, min(float(valeur), 1.0))
