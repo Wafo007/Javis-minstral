@@ -30,6 +30,7 @@ from core.util import sans_accents
 LOG = logging.getLogger("jarvis")
 
 _BROWSER = None   # navigateur Chrome connecte via CDP
+_ERREUR = [""]    # derniere erreur de connexion (affichee dans le message)
 
 _MSG_ABSENT = ("Je n'ai pas reussi a lancer Chrome connecte. Verifie que Google "
                "Chrome est installe (ou renseigne navigateur.chrome_exe dans "
@@ -38,9 +39,20 @@ _MSG_FIREFOX = ("Je ne peux pas lire ni piloter Firefox. Pour que je lise ou agi
                 "une page, ouvre-la dans le raccourci \"Chrome + Jarvis\".")
 
 
+def _piloter_avec_chrome():
+    return bool(reglage("navigateur.piloter_avec_chrome", True))
+
+
 def _absent():
     from core.ouvrir_web import navigateur_prefere
-    return _MSG_FIREFOX if navigateur_prefere() == "firefox" else _MSG_ABSENT
+    if navigateur_prefere() == "firefox" and not _piloter_avec_chrome():
+        return _MSG_FIREFOX
+    if not _chrome_exe():
+        return ("Je ne trouve pas Google Chrome. Installe-le ou renseigne navigateur.chrome_exe "
+                "dans config.yaml.")
+    if "ModuleNotFoundError" in _ERREUR[0] or "playwright" in _ERREUR[0].lower():
+        return "Le module Playwright est absent. Lance : uv sync, puis relance Jarvis."
+    return _MSG_ABSENT + (f" (détail : {_ERREUR[0]})" if _ERREUR[0] else "")
 
 # Les noms usuels sont normalises ici, pas laisses au jugement du LLM. Cela rend
 # « ouvre Netflix » aussi fiable avec un petit modele local qu'avec le cloud.
@@ -56,6 +68,17 @@ _SITES_CONNUS = {
     "tiktok": "https://www.tiktok.com",
     "prime video": "https://www.primevideo.com",
     "disney plus": "https://www.disneyplus.com",
+}
+# « cherche X sur YouTube/Spotify... » : on va directement aux resultats du site.
+_RECHERCHES = {
+    "youtube": "https://www.youtube.com/results?search_query=%s",
+    "spotify": "https://open.spotify.com/search/%s",
+    "amazon": "https://www.amazon.fr/s?k=%s",
+    "wikipedia": "https://fr.wikipedia.org/w/index.php?search=%s",
+    "google maps": "https://www.google.com/maps/search/%s",
+    "maps": "https://www.google.com/maps/search/%s",
+    "netflix": "https://www.netflix.com/search?q=%s",
+    "twitch": "https://www.twitch.tv/search?term=%s",
 }
 _URL_RE = re.compile(
     r"^(?:https?://)?(?:www\.)?[a-z0-9](?:[a-z0-9-]*\.)+[a-z]{2,}(?:[/?#].*)?$",
@@ -85,7 +108,10 @@ def est_demande_web(texte):
 def _resoudre_cible(url="", recherche=""):
     """Transforme une demande imparfaite du LLM en URL sure et exploitable."""
     if (recherche or "").strip():
-        return f"https://www.google.com/search?q={quote_plus(recherche.strip())}"
+        site = _sans_verbe(url)[1] if url else ""
+        modele = _RECHERCHES.get(site)
+        return (modele % quote_plus(recherche.strip())) if modele else \
+            f"https://www.google.com/search?q={quote_plus(recherche.strip())}"
     brut, normalise = _sans_verbe(url)
     if normalise.startswith(("cherche ", "recherche ")):
         termes = brut.split(" ", 1)[1].strip() if " " in brut else ""
@@ -156,10 +182,13 @@ def _tenter_cdp(port):
     try:
         from core.playwright_partage import obtenir
         _BROWSER = obtenir().chromium.connect_over_cdp(f"http://localhost:{port}",
-                                                       timeout=3000)
+                                                       timeout=5000)
+        _ERREUR[0] = ""
         return _BROWSER
-    except Exception:
+    except Exception as e:
         _BROWSER = None
+        _ERREUR[0] = f"{type(e).__name__}: {str(e)[:160]}"
+        LOG.warning("navigateur: connexion CDP impossible (%s)", _ERREUR[0])
         return None
 
 MOTS_ACHAT = ["acheter", "commander", "payer", "passer la commande",
@@ -188,8 +217,12 @@ def _connexion(auto=True):
     # 2) Sinon, auto-lancer le Chrome dedie et attendre qu'il reponde (~8 s).
     # Quand Firefox est le navigateur choisi, Jarvis n'ouvre jamais Chrome de lui-meme.
     from core.ouvrir_web import navigateur_prefere
-    if auto and navigateur_prefere() != "firefox" and _lancer_chrome(port):
-        for _ in range(16):
+    # Firefox reste le navigateur d'OUVERTURE (browser_open), mais lire/cliquer dans une page
+    # exige Chrome (Firefox ne peut pas etre pilote) : on le lance quand meme, sauf si
+    # navigateur.piloter_avec_chrome est false.
+    if auto and (navigateur_prefere() != "firefox" or _piloter_avec_chrome()) and _lancer_chrome(port):
+        attente = float(reglage("navigateur.attente_lancement", 30) or 30)
+        for _ in range(max(16, int(attente / 0.5))):
             time.sleep(0.5)
             if _port_ouvert(port):
                 b = _tenter_cdp(port)

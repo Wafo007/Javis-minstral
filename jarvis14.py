@@ -960,8 +960,12 @@ def _calibrer_seuils(flux, secondes=1.0):
         return None
     niveaux.sort()
     fond = niveaux[len(niveaux) // 2]                  # médiane = plancher de bruit
-    seuil_silence = min(0.05, max(0.004, fond * 2.0))
-    seuil_parole = min(0.12, max(0.010, fond * 4.5))
+    if fond > 0.02:        # bruit anormal (voix de Jarvis, musique...) : on garde les seuils par defaut
+        print(f"[audio] bruit ambiant trop eleve pendant la calibration ({fond:.3f}) : seuils par defaut.")
+        return None
+    # Plafonds bas : un seuil trop haut ignore une voix normale et Jarvis « s'endort » entre deux phrases.
+    seuil_silence = min(0.02, max(0.004, fond * 2.0))
+    seuil_parole = min(0.045, max(0.010, fond * 4.5))
     return seuil_silence, seuil_parole
 
 
@@ -1043,7 +1047,10 @@ def _apres_parole(flux, tampon, delai=None):
     """Apres que Jarvis a fini de parler : attend que l'echo des haut-parleurs retombe,
     puis jette l'audio accumule pendant qu'il parlait. Sans ca, le micro enregistre la fin
     de sa propre reponse comme si c'etait une nouvelle question."""
-    time.sleep(float(config.reglage("assistant.delai_apres_parole", 0.8)) if delai is None else delai)
+    # Court : l'utilisateur enchaine souvent tout de suite, on ne doit pas avaler le debut de sa phrase.
+    if delai is None:
+        delai = min(float(config.reglage("assistant.delai_apres_parole", 0.25) or 0.25), 0.4)
+    time.sleep(max(0.0, delai))
     try:
         for _ in range(50):
             dispo = int(flux.read_available)

@@ -73,6 +73,7 @@ def decider_prioritaire(phrase: str, piece: str = "") -> Decision | None:
         ("tools.alexa", "router_commande"),
         ("tools.media", "router_commande_media"),
         ("tools.apps", "router_ouverture_simple"),
+        ("tools.controle_pc", "router_commande_pc"),
         ("tools.colis", "router_suivi"),
     ):
         try:
@@ -144,7 +145,7 @@ _DOMAINES = (
       "gestes visibles", "regarde mes mains", "webcam"), {"gestes"}),
     (("ecran", "fenetre", "souris", "clique", "clic", "ordinateur", " pc ",
       "application", "logiciel", "dossier", "telechargements", "parametre"),
-     {"ecran", "souris", "apps", "systeme", "astra_pc", "gestes", "stats"}),
+     {"ecran", "souris", "apps", "systeme", "astra_pc", "gestes", "stats", "controle_pc"}),
     (("chrome", "navigateur", "onglet", "site", "page web", "internet",
       "cherche sur le web", "recherche web", "reserve", "reservation"),
      {"navigateur", "web", "reservation"}),

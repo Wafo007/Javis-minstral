@@ -220,6 +220,22 @@ def _executer_action(action: dict) -> str:
     raise ValueError(f"action non executable : {nom or '?'}")
 
 
+def _fournisseur_operateur():
+    """Fournisseur de l'operateur visuel : astra_pc.fournisseur, sinon le cloud actif (Mistral
+    -> modele de vision pixtral), sinon OpenAI. None si aucun n'est configure."""
+    choix = str(reglage("astra_pc.fournisseur", "") or "").strip().lower()
+    if choix in ("openai", "mistral", "anthropic"):
+        return choix
+    actif = cloud.fournisseur()
+    if actif == "mistral" and cloud.client_mistral() is not None:
+        return "mistral"
+    if actif == "anthropic" and cloud.client_anthropic() is not None:
+        return "anthropic"
+    if cloud.client_openai() is not None:
+        return "openai"
+    return None
+
+
 def executer_controle(tache: str) -> str:
     """Boucle bornee capture -> decision Astra -> action locale -> verification."""
     tache = str(tache or "").strip()
@@ -231,10 +247,12 @@ def executer_controle(tache: str) -> str:
     if bloque:
         return ("Je ne prends pas le controle pour cette demande, car elle implique "
                 f"{bloque}. Utilise l'outil specialise avec sa confirmation.")
-    if cloud.client_openai() is None:
+    fournisseur = _fournisseur_operateur()
+    if fournisseur is None:
         return "La cle OpenAI n'est pas configuree, donc Astra n'est pas disponible."
-
-    modele = str(reglage("astra_pc.modele", "gpt-6-astra") or "gpt-6-astra")
+    # OpenAI : GPT-6 Astra ; Mistral : modele de vision (pixtral) ; Anthropic : modele qualite.
+    modele = (str(reglage("astra_pc.modele", "gpt-6-astra") or "gpt-6-astra")
+              if fournisseur == "openai" else str(reglage("astra_pc.modele_vision", "") or ""))
     max_actions = max(1, min(int(reglage("astra_pc.max_actions", 12) or 12), 25))
     delai = max(15.0, min(float(reglage("astra_pc.timeout", 90) or 90), 180.0))
     ecran = _ecran_cible(tache)
@@ -258,10 +276,10 @@ def executer_controle(tache: str) -> str:
             action = cloud.decider_action_vision(
                 _SYSTEME_OPERATEUR, demande, image_b64, _SCHEMA_ACTION,
                 nom_outil="agir_pc", description="Une action locale bornee sur Windows.",
-                nom_modele=modele, qualite=True, fournisseur_force="openai")
+                nom_modele=modele, qualite=True, fournisseur_force=fournisseur)
         except Exception as exc:
             LOG.exception("astra_pc: decision")
-            return f"Astra n'est pas joignable pour le moment ({str(exc)[:100]})."
+            return f"Le pilotage de l'écran ({fournisseur}) n'est pas joignable pour le moment ({str(exc)[:100]})."
 
         nom = str(action.get("action", "")).lower()
         if nom == "termine":
@@ -291,7 +309,7 @@ def _annonce(args):
 @outil(
     nom="controle_pc_astra",
     description=(
-        "Demande a GPT-6 Astra d'accomplir une tache multi-etapes dans l'interface "
+        "Operateur visuel (GPT-6 Astra, ou Mistral Pixtral si Mistral est le cloud actif) : accomplit une tache multi-etapes dans l'interface "
         "Windows quand les outils directs ne suffisent pas : cliquer, taper, naviguer "
         "dans une application. Utilise cet outil si la demande necessite reellement "
         "de voir et piloter l'ecran. Le systeme demandera l'autorisation avant de "

@@ -219,6 +219,10 @@ navigateur:                    # assistance sur TON Chrome (voir docs/navigateur
                                # une page reste possible dans le raccourci "Chrome + Jarvis" deja ouvert
   firefox_exe: ""              # chemin de firefox.exe si installe hors des emplacements standards
   cdp_port: 9222               # port de debug (raccourci "Chrome + Jarvis")
+  piloter_avec_chrome: true    # true = pour LIRE/CLIQUER dans une page, Jarvis lance Chrome (profil dedie) meme si
+                               # prefere: firefox (Firefox ne peut pas etre pilote). false = ancien comportement
+  attente_lancement: 30        # secondes d'attente du Chrome dedie au 1er lancement
+  # chrome_exe: "C:/Program Files/Google/Chrome/Application/chrome.exe"   # si Chrome est installe ailleurs
   domaines_proteges:           # sites ou Jarvis LIT mais n'AGIT jamais (fais-le toi-meme)
     - "impots.gouv.fr"
     - "ameli.fr"
@@ -577,3 +581,22 @@ mode_nuit:
 #     actions:
 #       - {outil: ouvrir_application, args: {nom: "Chrome"}}
 #     dire: "C'est parti, {nom}."
+
+# --- Controle du PC ----------------------------------------------------------------
+controle_pc:
+  pause_etapes: 1.2             # secondes entre deux actions d'une phrase enchainee (laisse l'appli s'ouvrir)
+  recherche_raccourcis:         # raccourci de la barre de recherche de chaque appli (rechercher_dans_application)
+    spotify: "ctrl+l"
+    discord: "ctrl+k"
+    whatsapp: "ctrl+f"
+# Vision (clic « a l'oeil », lecture d'ecran, actions dans les pages) : ministral/nemo ne voient pas
+# les images ; ces modeles sont utilises a leur place.
+# mistral:
+#   modele_vision: "pixtral-12b-latest"
+#   modeles_vision_secours: ["mistral-small-latest"]
+# Operateur visuel (« clique dessus », taches multi-etapes a l'ecran) : suit le cloud actif.
+# Avec Mistral il utilise le modele de vision (pixtral) ; OpenAI : GPT-6 Astra.
+# astra_pc:
+#   fournisseur: mistral          # force : openai | mistral | anthropic
+#   modele_vision: ""             # vide = pixtral-12b-latest (Mistral)
+#   max_actions: 12               # Echap arrete la boucle a tout moment

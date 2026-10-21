@@ -318,6 +318,30 @@ Le projet Windows ne devient pas une appli Android. En revanche Jarvis a déjà 
 
 Architecture recommandée : `Android (PWA ou appli) → Wi-Fi local ou tunnel → serveur Jarvis Windows (token obligatoire, connexions non autorisées refusées) → Mistral / outils / TTS`. Étapes : (a) PWA de commande + état + modes via le serveur unifié ; (b) appli Android « satellite » avec le protocole existant pour servir de micro ; (c) notifications. **Non implémenté ici** : aucune appli Android n'est livrée ; les routes HTTP de pilotage des modes/voix pour mobile restent à ajouter. Sécurité : token secret long, réseau local de préférence, pas d'exposition Internet sans tunnel authentifié.
 
+### Contrôle du PC (clic, clavier, applications, Chrome)
+**Pourquoi Jarvis ne pouvait pas agir** : (1) une phrase avec « Spotify » ne lui donnait que les outils musique ; (2) `ministral`/`nemo` ne voient pas les images, donc pas de clic « à l'œil » ; (3) aucun outil ne tapait au clavier ou ne cliquait un bouton par son nom ; (4) la connexion à Chrome n'attendait que 8 s et masquait l'erreur. Corrigé :
+
+| Tu dis | Outil |
+|---|---|
+| « Ouvre Spotify / Discord / VS Code » (toute appli installée, Store compris) | `lancer_application_pc` |
+| « Passe sur Spotify » | `activer_fenetre` (par titre **ou programme**) |
+| « Cherche Daft Punk sur Spotify » (appli de bureau) | `rechercher_dans_application` (ouvre, Ctrl+L, tape, Entrée) |
+| « Cherche Daft Punk sur YouTube/Spotify » (web) | `browser_open` → résultats directs |
+| « Appuie sur Ctrl+S », « Entrée », « Alt+Tab » | `appuyer_touches` |
+| « Écris bonjour » | `taper_texte` (accents compris) |
+| « Clique sur Enregistrer » (par son nom, sans vision) | `cliquer_bouton` / `lister_controles` |
+| « Clique sur ce bouton » (à l'œil) | `capture_screen` + `cliquer_ecran` avec un modèle de vision Mistral (`mistral.modele_vision`, défaut `pixtral-12b-latest`, secours `mistral-small-latest`) |
+
+**Commandes PC comprises SANS LLM** (instantanées, fiables, même avec un petit modèle) : « Ouvre mon navigateur / Chrome / Spotify / Steam » · « Clique », « Double clic », « Clic droit » (là où est la souris) · « Clique sur *Enregistrer* » (par son nom ; sinon repli par vision) · « Descends / Remonte la page », « Tout en bas » · « Déplace la souris vers la droite de 300 » · « Appuie sur Ctrl S / Entrée / Alt Tab » · « Tape *texte* » / « Écris *texte* » · « Passe sur *Spotify* » · « Cherche *X* sur Spotify / YouTube / Amazon / Google » · « Ferme la fenêtre », « Nouvel onglet », « Actualise la page », « Minimise / Maximise », « Montre le bureau », « Copie », « Colle », « Enregistre », « Verrouille le PC » · **plusieurs actions d'un coup** : « Ouvre Chrome et lance YouTube », « Ouvre le bloc-notes puis tape bonjour puis appuie sur Ctrl S » (exécutées dans l'ordre ; si une étape n'est pas comprise, tout part au LLM, rien n'est fait à moitié ; jamais d'outil à confirmation dans une chaîne). Tout ce qui n'est pas reconnu continue d'aller au LLM comme avant. Sécurité : jamais de clic aveugle sur supprimer / payer / acheter / envoyer / mot de passe.
+
+**Diagnostic** : `uv run python scripts/diagnostic_pc.py` vérifie sur ta machine fenêtres, menu Démarrer, UI Automation, souris, capture, Chrome, Playwright, vision — sans rien cliquer ni taper — et dit ce qui est en échec.
+
+**Si tu as `navigateur.prefere: "firefox"`** : Firefox ouvre les pages mais ne peut pas être piloté, d'où le message « Chrome + Jarvis ». Avec `piloter_avec_chrome: true` (défaut), Jarvis lance quand même Chrome (profil dédié) dès qu'il doit lire ou cliquer dans une page.
+
+**« Chrome + Jarvis »** : Jarvis pilote les pages web via un Chrome dédié (profil « ChromeJarvis », port de debug), car Chrome interdit le debug sur le profil normal depuis la v136. Il le lance **tout seul** ; le raccourci n'est qu'un secours. Connecte-toi une fois à tes sites dans cette fenêtre. Si ça échoue, le message donne maintenant la cause exacte (Chrome introuvable, Playwright absent, délai dépassé) ; `navigateur.attente_lancement` règle l'attente (30 s).
+
+**Limites réelles** : pas de saisie de mots de passe/paiements ; Ctrl+Alt+Suppr refusé ; une fenêtre lancée « en administrateur » (ou une invite UAC) ignore les clics/touches si Jarvis n'est pas lancé en administrateur ; certains jeux (anti-triche) bloquent la saisie simulée ; `cliquer_bouton` ne voit que les applications exposant UI Automation (Chrome en page web : utilise `browser_interact`). `controle_pc_astra` ne fonctionne qu'avec OpenAI. Les actions de clic/saisie hors navigateur ne demandent pas de confirmation (seuls les outils N2/N3 existants en demandent).
+\r\n
 ### Tests
 `python -m unittest tests.test_assistant_personnel` (35 tests, sans micro ni réseau) : wake word, salutation, nettoyage vocal, voix, modes, routines, contexte, erreurs, confirmations.
 

@@ -17,6 +17,7 @@ ne propose qu'une voix FR recente et de qualite moyenne ; Piper est un meilleur
 choix pour le francais aujourd'hui.
 """
 import json
+import time
 import logging
 import urllib.request
 from pathlib import Path
@@ -35,6 +36,7 @@ LOG = logging.getLogger("jarvis")
 _RACINE = Path(__file__).resolve().parent.parent
 
 
+_EL_HS = {"jusqu": 0.0}   # ElevenLabs en panne jusqu'a cet instant (disjoncteur)
 _SURCHARGE = {}      # reglages TTS temporaires (profil de voix choisi a la voix)
 
 
@@ -120,6 +122,8 @@ class ElevenLabsProvider(ProviderTTS):
         requete = urllib.request.Request(url, data=corps, method="POST", headers={
             "xi-api-key": self.cle, "Content-Type": "application/json",
             "Accept": "audio/mpeg" if miniaudio is not None else "audio/pcm"})
+        if time.time() < _EL_HS["jusqu"]:
+            return None                  # disjoncteur ouvert : voix Windows sans attendre le reseau
         try:
             with urllib.request.urlopen(requete, timeout=15) as reponse:
                 donnees = reponse.read()
@@ -136,7 +140,11 @@ class ElevenLabsProvider(ProviderTTS):
                 pass
             return np.frombuffer(donnees, dtype=np.int16), 24000
         except Exception as e:
-            print(f"  [ElevenLabs] indisponible ({e}), repli voix Windows.")
+            code = getattr(e, "code", None)
+            # cle refusee / quota : inutile de reessayer avant longtemps ; reseau : 60 s
+            duree = 3600 if code in (401, 403, 429) else 60
+            _EL_HS["jusqu"] = time.time() + duree
+            print(f"  [ElevenLabs] indisponible ({e}), voix Windows pendant {duree // 60} min.")
             return None
 
 

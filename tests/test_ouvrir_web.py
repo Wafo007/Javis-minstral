@@ -51,14 +51,27 @@ class BrowserOpenTest(unittest.TestCase):
         self.assertEqual(lancement.call_args.args[0][-1], "https://www.netflix.com")
         chrome.assert_not_called()
 
-    def test_avec_firefox_chrome_n_est_jamais_lance_pour_lire(self):
+    def test_avec_firefox_chrome_n_est_pas_lance_si_pilotage_desactive(self):
         from tools import navigateur
         with patch.object(ouvrir_web, "reglage", reglages()), \
+                patch.object(navigateur, "_piloter_avec_chrome", return_value=False), \
                 patch.object(navigateur, "_BROWSER", None), \
                 patch.object(navigateur, "_tenter_cdp", return_value=None), \
                 patch.object(navigateur, "_lancer_chrome") as lancement:
             self.assertIsNone(navigateur._connexion())
         lancement.assert_not_called()
+
+    def test_avec_firefox_chrome_dedie_est_lance_pour_lire_ou_cliquer(self):
+        from tools import navigateur
+        with patch.object(ouvrir_web, "reglage", reglages()), \
+                patch.object(navigateur, "_piloter_avec_chrome", return_value=True), \
+                patch.object(navigateur, "_BROWSER", None), \
+                patch.object(navigateur, "_tenter_cdp", return_value=None), \
+                patch.object(navigateur, "_port_ouvert", return_value=False), \
+                patch.object(navigateur.time, "sleep"), \
+                patch.object(navigateur, "_lancer_chrome", return_value=True) as lancement:
+            navigateur._connexion()
+        lancement.assert_called_once()
 
 
 if __name__ == "__main__":

@@ -54,6 +54,10 @@ _CIBLES_GENERIQUES = {
     "fichier", "un fichier", "ce fichier", "dossier", "un dossier",
     "ce dossier", "document", "un document", "ce document", "telechargements",
 }
+_NAVIGATEURS_OUVERTURE = {
+    "navigateur", "un navigateur", "navigateur web", "internet", "chrome", "google chrome", "firefox",
+    "mozilla firefox", "edge", "microsoft edge", "brave", "opera",
+}
 _UTILITAIRES = {
     "spotify": "spotify",
     "discord": "discord",
@@ -135,12 +139,18 @@ def router_ouverture_simple(phrase, piece=""):
         return "lancer_spotify", args
 
     from tools.navigateur import est_demande_web
+    sans_poss = re.sub(r"^(?:mon|ma|mes|ton|ta) ", "", cible)    # « ouvre MON navigateur »
     if est_demande_web(cible):
         return "browser_open", {"url": cible}
+    if sans_poss != cible and est_demande_web(sans_poss):
+        return "browser_open", {"url": sans_poss}
     if navigation_web:
         # « va sur YouTube » est une navigation claire ; « va dormir » n'est
         # certainement pas une demande de lancement d'application.
         return None
+
+    if sans_poss in _NAVIGATEURS_OUVERTURE:
+        return "ouvrir_navigateur", {"nom": sans_poss}
 
     clef = _trouver(cible, _apps())
     if clef is not None:
@@ -195,6 +205,13 @@ def launch_app(nom: str) -> str:
     apps = _apps()
     clef = _trouver(nom, apps)
     if clef is None:
+        try:                      # pas dans config.yaml : menu Demarrer (Store compris) avant d'abandonner
+            from tools.controle_pc import lancer_application_pc
+            trouve = lancer_application_pc(nom)
+            if not trouve.startswith("Je ne trouve pas"):
+                return trouve
+        except Exception:
+            pass
         return (f"Je ne connais pas {nom}. Donne-moi son chemin d'installation, "
                 "ou son identifiant Steam (steam deux points slash slash rungameid "
                 "slash numero), et je l'ajouterai.")

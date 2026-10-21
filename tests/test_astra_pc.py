@@ -81,5 +81,19 @@ class AstraPcTests(unittest.TestCase):
         self.assertEqual(registre.niveau("controle_pc_astra"), "N3")
 
 
+class OperateurMistralTest(unittest.TestCase):
+    @patch("tools.astra_pc.cloud.client_mistral", return_value=object())
+    @patch("tools.astra_pc.cloud.fournisseur", return_value="mistral")
+    @patch("tools.astra_pc.cloud.client_openai", return_value=object())   # cle OpenAI presente mais inutilisee
+    def test_mistral_actif_prend_le_pas_sur_openai(self, *_):
+        self.assertEqual(astra_pc._fournisseur_operateur(), "mistral")
+
+    @patch("tools.astra_pc.cloud.client_openai", return_value=None)
+    @patch("tools.astra_pc.cloud.client_anthropic", return_value=None)
+    @patch("tools.astra_pc.cloud.client_mistral", return_value=None)
+    def test_aucun_fournisseur(self, *_):
+        self.assertIsNone(astra_pc._fournisseur_operateur())
+
+
 if __name__ == "__main__":
     unittest.main()

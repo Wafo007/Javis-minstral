@@ -24,7 +24,7 @@ LOG = logging.getLogger("jarvis")
 PROFILS_CLOUD = {
     "openai": {"hybride": "gpt-5.6-luna", "qualite": "gpt-6-astra"},
     "anthropic": {"hybride": "claude-haiku-4-5", "qualite": "claude-sonnet-4-5"},
-    "mistral": {"hybride": "mistral-small-latest", "qualite": "mistral-large-latest"},
+    "mistral": {"hybride": "ministral-8b-latest", "qualite": "open-mistral-nemo"},
 }
 
 
@@ -64,6 +64,21 @@ def modele(qualite: bool = False, surcharge: str = "") -> str:
     cle = f"{f}.modele_qualite" if qualite else f"{f}.modele"
     return str(reglage(cle, modele_par_defaut(f, qualite))
                or modele_par_defaut(f, qualite))
+
+
+_VISION_MISTRAL = ("pixtral", "mistral-small", "mistral-medium", "mistral-large")
+
+
+def modele_vision_mistral(cible=""):
+    """Modele Mistral capable de lire une image (config mistral.modele_vision)."""
+    if str(cible or "").lower().startswith(_VISION_MISTRAL):
+        return str(cible)
+    return str(reglage("mistral.modele_vision", "pixtral-12b-latest") or "pixtral-12b-latest")
+
+
+def modeles_vision_secours():
+    sec = reglage("mistral.modeles_vision_secours", ["mistral-small-latest"]) or []
+    return [str(m) for m in sec]
 
 
 def client_openai():
@@ -313,19 +328,32 @@ def decider_action_vision(systeme: str, texte: str, image_b64: str,
         client = client_mistral()
         if client is None:
             raise RuntimeError("cle Mistral absente (mistral.cle)")
-        rep = client.chat.completions.create(
-            model=cible,
-            messages=[{"role": "system", "content": systeme},
-                      {"role": "user", "content": [
-                          {"type": "text", "text": texte},
-                          {"type": "image_url", "image_url": {
-                              "url": f"data:image/jpeg;base64,{image_b64}"}},
-                      ]}],
-            tools=[{"type": "function", "function": {
-                "name": nom_outil, "description": description, "parameters": schema}}],
-            tool_choice={"type": "function", "function": {"name": nom_outil}},
-            max_tokens=1200,
-        )
+        # ministral / nemo ne voient pas les images : modele de vision dedie (+ secours).
+        principal = modele_vision_mistral(cible)
+        essais = [principal] + [m for m in modeles_vision_secours() if m != principal]
+        rep, derniere = None, None
+        for cible in essais:
+            try:
+                rep = client.chat.completions.create(
+                    model=cible,
+                    messages=[{"role": "system", "content": systeme},
+                              {"role": "user", "content": [
+                                  {"type": "text", "text": texte},
+                                  {"type": "image_url", "image_url": {
+                                      "url": f"data:image/jpeg;base64,{image_b64}"}},
+                              ]}],
+                    tools=[{"type": "function", "function": {
+                        "name": nom_outil, "description": description, "parameters": schema}}],
+                    tool_choice={"type": "function", "function": {"name": nom_outil}},
+                    max_tokens=1200,
+                )
+                break
+            except Exception as e:
+                derniere = e
+                if getattr(e, "status_code", None) not in (400, 404, 422, 429):
+                    raise
+        if rep is None:
+            raise derniere
         enregistrer_usage(rep, "Mistral (Jarvis)", cible)
         calls = getattr(rep.choices[0].message, "tool_calls", None) or []
         if calls:

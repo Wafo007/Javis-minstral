@@ -225,6 +225,10 @@ class ClaudeProvider(ProviderLLM):
 
 # --------------------------------------------------------------- Mistral (cloud)
 
+_SECOURS_ANNONCES = set()
+_MODELES_BLOQUES = set()   # modeles a 0 requete/minute sur ce compte (ignores le temps de la session)
+
+
 class MistralProvider(ProviderLLM):
     """Adaptateur Chat Completions Mistral -> forme interne de Jarvis.
 
@@ -335,7 +339,14 @@ class MistralProvider(ProviderLLM):
             import time as _t
             secours = reglage("mistral.modeles_secours", ["ministral-8b-latest", "open-mistral-nemo"]) or []
             rep, derniere = None, None
-            for _modele in [self.modele] + [m for m in secours if m != self.modele]:
+            _ordre = [self.modele] + [m for m in secours if m != self.modele]
+            _ordre = [m for m in _ordre if m not in _MODELES_BLOQUES] or _ordre
+            if any(isinstance(c, dict) and c.get("type") == "image_url"
+                   for msg in kwargs.get("messages", []) if isinstance(msg.get("content"), list)
+                   for c in msg["content"]):
+                # capture d'ecran dans la conversation : seuls les modeles de vision conviennent
+                _ordre = [cloud.modele_vision_mistral()] + cloud.modeles_vision_secours()
+            for _modele in _ordre:
                 kwargs["model"] = _modele
                 for _essai in range(2):      # plan gratuit : debit limite (429) -> on patiente un peu
                     try:
@@ -345,11 +356,17 @@ class MistralProvider(ProviderLLM):
                         derniere = _e
                         if getattr(_e, "status_code", None) != 429:
                             raise
+                        _h = getattr(getattr(_e, "response", None), "headers", {}) or {}
+                        if str(_h.get("x-ratelimit-limit-req-minute", "")) == "0":
+                            _MODELES_BLOQUES.add(_modele)
+                            print(f"  [mistral] {_modele} n'est pas disponible sur ton plan (0 requete/minute).")
+                            break
                         if _essai == 0:
                             print(f"  [mistral] 429 sur {_modele}, nouvel essai dans 3 s...")
                             _t.sleep(3)
                 if rep is not None:
-                    if _modele != self.modele:
+                    if _modele != self.modele and _modele not in _SECOURS_ANNONCES:
+                        _SECOURS_ANNONCES.add(_modele)        # une seule fois par session
                         print(f"  [mistral] reponse obtenue avec le modele de secours {_modele}.")
                     break
                 print(f"  [mistral] {_modele} limite (429), je tente le modele suivant...")
