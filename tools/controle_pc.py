@@ -20,6 +20,63 @@ import unicodedata
 
 from core.config import reglage
 from core.registre import outil
+from ctypes import wintypes
+
+# ============================================================
+# CONFIGURATION DES API WINDOWS
+# ============================================================
+
+user32 = ctypes.windll.user32
+kernel32 = ctypes.windll.kernel32
+
+# Récupération de la fenêtre active
+user32.GetForegroundWindow.restype = wintypes.HWND
+
+# Vérification de l'existence d'une fenêtre
+user32.IsWindow.argtypes = [wintypes.HWND]
+user32.IsWindow.restype = wintypes.BOOL
+
+# Vérification de la visibilité
+user32.IsWindowVisible.argtypes = [wintypes.HWND]
+user32.IsWindowVisible.restype = wintypes.BOOL
+
+# Récupération du titre
+user32.GetWindowTextLengthW.argtypes = [wintypes.HWND]
+user32.GetWindowTextLengthW.restype = ctypes.c_int
+
+user32.GetWindowTextW.argtypes = [
+    wintypes.HWND,
+    wintypes.LPWSTR,
+    ctypes.c_int
+]
+user32.GetWindowTextW.restype = ctypes.c_int
+
+# Récupération du processus associé
+user32.GetWindowThreadProcessId.argtypes = [
+    wintypes.HWND,
+    ctypes.POINTER(wintypes.DWORD)
+]
+user32.GetWindowThreadProcessId.restype = wintypes.DWORD
+
+# Gestion des processus
+kernel32.OpenProcess.argtypes = [
+    wintypes.DWORD,
+    wintypes.BOOL,
+    wintypes.DWORD
+]
+kernel32.OpenProcess.restype = wintypes.HANDLE
+
+kernel32.QueryFullProcessImageNameW.argtypes = [
+    wintypes.HANDLE,
+    wintypes.DWORD,
+    wintypes.LPWSTR,
+    ctypes.POINTER(wintypes.DWORD)
+]
+kernel32.QueryFullProcessImageNameW.restype = wintypes.BOOL
+
+kernel32.CloseHandle.argtypes = [wintypes.HANDLE]
+kernel32.CloseHandle.restype = wintypes.BOOL
+
 
 LOG = logging.getLogger("jarvis.controle_pc")
 
@@ -142,16 +199,121 @@ def choisir_fenetre(fenetres, requete):
 
 
 def _activer(requete):
-    f = choisir_fenetre(_fenetres(), requete)
-    if not f:
+    """
+    Recherche une fenêtre Windows en privilégiant son exécutable.
+
+    Priorités :
+    1. Exécutable correspondant exactement
+    2. Alias connu d'une application
+    3. Titre correspondant exactement
+    4. Titre contenant la recherche
+
+    Les fenêtres de terminal sont exclues des recherches
+    approximatives, sauf si elles sont explicitement demandées.
+    """
+
+    import unicodedata
+
+    def normaliser(texte):
+        texte = unicodedata.normalize("NFKD", str(texte))
+        texte = "".join(
+            c for c in texte
+            if not unicodedata.combining(c)
+        )
+        return texte.replace("\xa0", " ").casefold().strip()
+
+    requete_norm = normaliser(requete)
+
+    if not requete_norm:
         return None
+
+    alias = {
+        "bloc-notes": "notepad.exe",
+        "bloc notes": "notepad.exe",
+        "notepad": "notepad.exe",
+        "chrome": "chrome.exe",
+        "visual studio code": "code.exe",
+        "vscode": "code.exe",
+        "explorateur": "explorer.exe",
+        "terminal": "conemu64.exe",
+        "cmd": "cmd.exe",
+    }
+
+    executable_cible = alias.get(requete_norm)
+
+    fenetres = _fenetres()
+
+    # 1. Correspondance exacte avec l'exécutable
+    if executable_cible:
+        correspondances = [
+            f for f in fenetres
+            if normaliser(f[2]) == executable_cible
+        ]
+    else:
+        correspondances = [
+            f for f in fenetres
+            if normaliser(f[2]) == requete_norm
+            or normaliser(f[2]) == requete_norm + ".exe"
+        ]
+
+    # 2. Correspondance exacte avec le titre
+    if not correspondances:
+        correspondances = [
+            f for f in fenetres
+            if normaliser(f[1]) == requete_norm
+        ]
+
+    # 3. Recherche approximative dans les titres
+    if not correspondances:
+        terminaux = {
+            "conemu64.exe",
+            "cmd.exe",
+            "powershell.exe",
+            "windowsterminal.exe",
+        }
+
+        correspondances = [
+            f for f in fenetres
+            if requete_norm in normaliser(f[1])
+            and (
+                normaliser(f[2]) not in terminaux
+                or requete_norm in {
+                    "terminal", "cmd", "powershell"
+                }
+            )
+        ]
+
+    if not correspondances:
+        LOG.warning(
+            "Aucune fenêtre correspondant à : %s",
+            requete
+        )
+        return None
+
+    f = correspondances[0]
+    hwnd = f[0]
+
     u = ctypes.windll.user32
-    if u.IsIconic(f[0]):
-        u.ShowWindow(f[0], 9)
-    u.keybd_event(0x12, 0, 0, 0)                          # contourne le blocage du focus
-    u.keybd_event(0x12, 0, 2, 0)
-    u.SetForegroundWindow(f[0])
-    time.sleep(0.25)
+
+    if u.IsIconic(hwnd):
+        u.ShowWindow(hwnd, 9)
+
+    u.SetForegroundWindow(hwnd)
+
+    time.sleep(0.3)
+
+    actif = user32.GetForegroundWindow()
+
+    if actif != hwnd:
+        LOG.warning(
+            "Fenêtre trouvée mais activation non confirmée : "
+            "%s (%s), HWND=%s, actif=%s",
+            f[1],
+            f[2],
+            hwnd,
+            actif
+        )
+
     return f
 
 
@@ -259,23 +421,209 @@ def taper_texte(texte: str, entree: bool = False) -> str:
 
 
 def _controles(hwnd):
-    """[(type, nom, x, y)] des controles actifs et visibles de la fenetre (UI Automation)."""
-    script = (
-        "Add-Type -AssemblyName UIAutomationClient,UIAutomationTypes; "
-        "$w=[System.Windows.Automation.AutomationElement]::FromHandle([IntPtr][int64]$env:JARVIS_HWND); "
-        "$c=New-Object System.Windows.Automation.AndCondition("
-        "(New-Object System.Windows.Automation.PropertyCondition([System.Windows.Automation.AutomationElement]::IsEnabledProperty,$true)),"
-        "(New-Object System.Windows.Automation.PropertyCondition([System.Windows.Automation.AutomationElement]::IsOffscreenProperty,$false))); "
-        "$o=@(); foreach($e in $w.FindAll('Descendants',$c)){ $n=$e.Current.Name; if($n){ $r=$e.Current.BoundingRectangle; "
-        "if($r.Width -gt 0 -and $r.Height -gt 0){ $o+=[pscustomobject]@{t=$e.Current.LocalizedControlType;n=$n;"
-        "x=[int]($r.X+$r.Width/2);y=[int]($r.Y+$r.Height/2)} } } }; $o | Select-Object -First 400 | ConvertTo-Json -Compress")
-    r = subprocess.run(["powershell", "-NoProfile", "-Command", script], capture_output=True, timeout=25,
-                       env={**os.environ, "JARVIS_HWND": str(hwnd)},
-                       creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
-    brut = json.loads(r.stdout.decode("utf-8", "replace") or "[]")
-    brut = brut if isinstance(brut, list) else [brut]
-    return [(d["t"], d["n"], d["x"], d["y"]) for d in brut]
+    """
+    Récupère les contrôles UI Automation d'une fenêtre Windows.
 
+    Retour :
+        [(type, nom, x, y), ...]
+
+    Améliorations :
+    - Gestion des erreurs PowerShell
+    - Vérification du handle
+    - Recherche limitée
+    - Gestion des réponses JSON
+    - Journalisation des anomalies
+    """
+
+    if not hwnd:
+        LOG.warning("UI Automation : handle invalide.")
+        return []
+
+    script = r"""
+$ErrorActionPreference = 'Stop'
+
+try {
+    Add-Type -AssemblyName UIAutomationClient
+    Add-Type -AssemblyName UIAutomationTypes
+
+    $hwnd = [IntPtr][int64]$env:JARVIS_HWND
+
+    $window = [System.Windows.Automation.AutomationElement]::FromHandle($hwnd)
+
+    if ($null -eq $window) {
+        throw "Fenêtre UI Automation introuvable."
+    }
+
+    $condition = [System.Windows.Automation.Condition]::TrueCondition
+
+    # Explorer progressivement l'arborescence UI Automation.
+    # Profondeur maximale : 5 niveaux.
+    # Nombre maximal d'éléments examinés : 200.
+
+    $elements = New-Object System.Collections.ArrayList
+    $file = New-Object System.Collections.Queue
+
+    $file.Enqueue(@($window, 0))
+
+    while ($file.Count -gt 0 -and $elements.Count -lt 200) {
+
+        $item = $file.Dequeue()
+        $parent = $item[0]
+        $profondeur = [int]$item[1]
+
+        if ($profondeur -ge 5) {
+            continue
+        }
+
+        try {
+            $enfants = $parent.FindAll(
+                [System.Windows.Automation.TreeScope]::Children,
+                $condition
+            )
+
+            foreach ($enfant in $enfants) {
+
+                [void]$elements.Add($enfant)
+
+                if ($elements.Count -ge 200) {
+                    break
+                }
+
+                $file.Enqueue(@($enfant, ($profondeur + 1)))
+            }
+
+        } catch {
+            continue
+        }
+    }
+
+    $resultats = @()
+
+    foreach ($element in $elements) {
+
+        try {
+            $nom = $element.Current.Name
+            $type = $element.Current.LocalizedControlType
+            $rectangle = $element.Current.BoundingRectangle
+
+            if (
+                -not [string]::IsNullOrWhiteSpace($nom) -and
+                $rectangle.Width -gt 0 -and
+                $rectangle.Height -gt 0
+            ) {
+
+                $resultats += [PSCustomObject]@{
+                    t = $type
+                    n = $nom
+                    x = [int]($rectangle.X + $rectangle.Width / 2)
+                    y = [int]($rectangle.Y + $rectangle.Height / 2)
+                }
+            }
+
+        } catch {
+            continue
+        }
+    }
+
+    ConvertTo-Json -InputObject @($resultats) -Compress -Depth 4
+
+} catch {
+    Write-Error $_
+    exit 1
+}
+"""
+
+    try:
+        resultat = subprocess.run(
+            [
+                "powershell",
+                "-NoProfile",
+                "-NonInteractive",
+                "-Command",
+                script
+            ],
+            capture_output=True,
+            timeout=15,
+            env={
+                **os.environ,
+                "JARVIS_HWND": str(hwnd)
+            },
+            creationflags=getattr(
+                subprocess,
+                "CREATE_NO_WINDOW",
+                0
+            )
+        )
+
+        if resultat.returncode != 0:
+            erreur = resultat.stderr.decode(
+                "utf-8",
+                errors="replace"
+            )
+
+            LOG.error(
+                "UI Automation PowerShell : %s",
+                erreur[:1000]
+            )
+
+            return []
+
+        sortie = resultat.stdout.decode(
+            "utf-8-sig",
+            errors="replace"
+        ).strip()
+
+        if not sortie:
+            return []
+
+        donnees = json.loads(sortie)
+
+        if isinstance(donnees, dict):
+            donnees = [donnees]
+
+        if not isinstance(donnees, list):
+            return []
+
+        controles = []
+
+        for element in donnees:
+
+            if not isinstance(element, dict):
+                continue
+
+            nom = str(element.get("n") or "").strip()
+
+            if not nom:
+                continue
+
+            controles.append((
+                str(element.get("t") or ""),
+                nom,
+                int(element.get("x") or 0),
+                int(element.get("y") or 0)
+            ))
+
+        return controles
+
+    except subprocess.TimeoutExpired:
+        LOG.warning(
+            "UI Automation : délai dépassé pour HWND=%s",
+            hwnd
+        )
+        return []
+
+    except (ValueError, TypeError, KeyError) as erreur:
+        LOG.exception(
+            "UI Automation : réponse invalide : %s",
+            erreur
+        )
+        return []
+
+    except Exception:
+        LOG.exception(
+            "Erreur inattendue dans _controles()"
+        )
+        return []
 
 def choisir_controle(controles, nom):
     q = _sa(nom).strip()
@@ -287,12 +635,148 @@ def choisir_controle(controles, nom):
             return groupe[0]
     return None
 
+def _infos_fenetre(hwnd):
+    """
+    Récupère les informations d'une fenêtre Windows
+    directement à partir de son handle.
+
+    Retourne :
+        (hwnd, titre, executable)
+
+    Ou None si le handle est invalide.
+    """
+
+    if not hwnd:
+        return None
+
+    if not user32.IsWindow(hwnd):
+        return None
+
+    # --------------------------------------------------
+    # 1. Récupérer le titre
+    # --------------------------------------------------
+
+    longueur = user32.GetWindowTextLengthW(hwnd)
+
+    buffer = ctypes.create_unicode_buffer(longueur + 1)
+
+    user32.GetWindowTextW(
+        hwnd,
+        buffer,
+        longueur + 1
+    )
+
+    titre = buffer.value
+
+    # --------------------------------------------------
+    # 2. Récupérer l'identifiant du processus
+    # --------------------------------------------------
+
+    pid = wintypes.DWORD()
+
+    user32.GetWindowThreadProcessId(
+        hwnd,
+        ctypes.byref(pid)
+    )
+
+    executable = ""
+
+    if pid.value:
+
+        PROCESS_QUERY_LIMITED_INFORMATION = 0x1000
+
+        processus = kernel32.OpenProcess(
+            PROCESS_QUERY_LIMITED_INFORMATION,
+            False,
+            pid.value
+        )
+
+        if processus:
+
+            try:
+
+                chemin = ctypes.create_unicode_buffer(520)
+
+                taille = wintypes.DWORD(520)
+
+                succes = kernel32.QueryFullProcessImageNameW(
+                    processus,
+                    0,
+                    chemin,
+                    ctypes.byref(taille)
+                )
+
+                if succes:
+                    executable = os.path.basename(
+                        chemin.value
+                    ).lower()
+
+            finally:
+
+                kernel32.CloseHandle(processus)
+
+    return (
+        int(hwnd),
+        titre,
+        executable
+    )
 
 def _fenetre_cible(fenetre):
+    """
+    Identifie la fenêtre sur laquelle Jarvis doit agir.
+
+    Si un nom est fourni :
+        recherche et active cette fenêtre.
+
+    Sinon :
+        utilise directement la fenêtre active Windows.
+    """
+
+    # Cas 1 : une fenêtre spécifique est demandée
     if fenetre:
-        return _activer(fenetre)
-    h = ctypes.windll.user32.GetForegroundWindow()
-    return next((f for f in _fenetres() if f[0] == h), None)
+
+        resultat = _activer(fenetre)
+
+        if resultat:
+            return resultat
+
+        LOG.warning(
+            "Fenêtre demandée introuvable : %s",
+            fenetre
+        )
+
+        return None
+
+    # Cas 2 : utiliser la fenêtre actuellement active
+    hwnd = user32.GetForegroundWindow()
+
+    if not hwnd:
+
+        LOG.warning(
+            "Windows ne retourne aucune fenêtre active."
+        )
+
+        return None
+
+    # Récupérer directement ses informations
+    resultat = _infos_fenetre(hwnd)
+
+    if resultat:
+
+        LOG.debug(
+            "Fenêtre active : %s | %s | HWND=%s",
+            resultat[1],
+            resultat[2],
+            resultat[0]
+        )
+
+        return resultat
+
+    LOG.warning(
+        "Impossible d'identifier la fenêtre active."
+    )
+
+    return None
 
 
 @outil(

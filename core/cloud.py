@@ -12,6 +12,9 @@ from __future__ import annotations
 
 import json
 import logging
+import os
+import time
+import threading
 
 from core.config import reglage
 
@@ -22,9 +25,22 @@ LOG = logging.getLogger("jarvis")
 # Hermes et le profil qualite reste disponible ponctuellement. Une valeur
 # explicite dans config.yaml gagne toujours sur ces recommandations.
 PROFILS_CLOUD = {
-    "openai": {"hybride": "gpt-5.6-luna", "qualite": "gpt-6-astra"},
-    "anthropic": {"hybride": "claude-haiku-4-5", "qualite": "claude-sonnet-4-5"},
-    "mistral": {"hybride": "ministral-8b-latest", "qualite": "open-mistral-nemo"},
+    "openai": {
+        "hybride": "gpt-5.6-luna",
+        "qualite": "gpt-6-astra",
+    },
+    "anthropic": {
+        "hybride": "claude-haiku-4-5",
+        "qualite": "claude-sonnet-4-5",
+    },
+    "mistral": {
+        "hybride": "mistral-small-latest",
+        "qualite": "mistral-medium-latest",
+    },
+    "gemini": {
+        "hybride": "gemini-2.5-flash",
+        "qualite": "gemini-2.5-flash",
+    },
 }
 
 
@@ -111,6 +127,110 @@ def client_mistral():
         timeout=float(reglage("mistral.timeout", 180)),
         max_retries=int(reglage("mistral.max_retries", 2)),
     )
+def client_gemini():
+    """Client Gemini utilisant l'interface compatible OpenAI."""
+
+    cle = (
+        os.getenv("GEMINI_API_KEY")
+        or str(reglage("gemini.cle", "") or "").strip()
+    )
+
+    if not cle:
+        return None
+
+    from openai import OpenAI
+
+    return OpenAI(
+        api_key=cle,
+        base_url=str(
+            reglage(
+                "gemini.base_url",
+                "https://generativelanguage.googleapis.com/v1beta/openai/"
+            )
+        ),
+        timeout=float(reglage("gemini.timeout", 90)),
+        max_retries=int(reglage("gemini.max_retries", 0)),
+    )
+
+_ETAT_SECOURS = {
+    "mistral_indisponible_jusqua": 0.0
+}
+
+_VERROU_SECOURS = threading.Lock()
+
+
+def _erreur_secourable(exc):
+    """Erreurs autorisant un basculement vers Gemini."""
+
+    statut = getattr(exc, "status_code", None)
+
+    return statut in (403, 429, 500, 502, 503, 504)
+
+
+def _mistral_disponible():
+    with _VERROU_SECOURS:
+        return time.monotonic() >= _ETAT_SECOURS[
+            "mistral_indisponible_jusqua"
+        ]
+
+
+def _suspendre_mistral():
+    delai = float(
+        reglage("cloud.cooldown_secondes", 300)
+    )
+
+    with _VERROU_SECOURS:
+        _ETAT_SECOURS[
+            "mistral_indisponible_jusqua"
+        ] = time.monotonic() + max(30, delai)
+
+    LOG.warning(
+        "Mistral temporairement indisponible. "
+        "Basculement vers Gemini."
+    )
+
+def _repondre_texte_gemini(
+    systeme,
+    historique,
+    max_tokens=500,
+    timeout=None,
+):
+    client = client_gemini()
+
+    if client is None:
+        raise RuntimeError(
+            "Gemini indisponible : GEMINI_API_KEY absente."
+        )
+
+    cible = str(
+        reglage("gemini.modele", "gemini-2.5-flash")
+    )
+
+    messages = [
+        {"role": "system", "content": systeme}
+    ] + list(historique or [])
+
+    options = {}
+
+    if timeout:
+        options["timeout"] = float(timeout)
+
+    rep = client.chat.completions.create(
+        model=cible,
+        messages=messages,
+        max_tokens=max_tokens,
+        **options,
+    )
+
+    enregistrer_usage(
+        rep,
+        "Gemini (Jarvis)",
+        cible
+    )
+
+    return (
+        rep.choices[0].message.content or ""
+    ).strip()
 
 
 def disponible() -> bool:
@@ -200,15 +320,71 @@ def repondre_texte(systeme: str, historique: list, max_tokens: int = 500,
         enregistrer_usage(rep, "OpenAI (Jarvis)", cible)
         return (rep.output_text or "").strip()
 
+    if provider == "gemini":
+        return _repondre_texte_gemini(
+            systeme,
+            historique,
+            max_tokens,
+            timeout,
+        )
+
     if provider == "mistral":
-        client = client_mistral()
-        if client is None:
-            raise RuntimeError("cle Mistral absente (mistral.cle)")
-        messages = [{"role": "system", "content": systeme}] + list(historique or [])
-        rep = client.chat.completions.create(
-            model=cible, messages=messages, max_tokens=max_tokens, **par_appel)
-        enregistrer_usage(rep, "Mistral (Jarvis)", cible)
-        return (rep.choices[0].message.content or "").strip()
+
+        secours_actif = bool(
+            reglage("cloud.secours_actif", False)
+        )
+
+        if secours_actif and not _mistral_disponible():
+            return _repondre_texte_gemini(
+                systeme,
+                historique,
+                max_tokens,
+                timeout,
+            )
+
+        try:
+            client = client_mistral()
+
+            if client is None:
+                raise RuntimeError(
+                    "cle Mistral absente (mistral.cle)"
+                )
+
+            messages = [
+                {"role": "system", "content": systeme}
+            ] + list(historique or [])
+
+            rep = client.chat.completions.create(
+                model=cible,
+                messages=messages,
+                max_tokens=max_tokens,
+                **par_appel,
+            )
+
+            enregistrer_usage(
+                rep,
+                "Mistral (Jarvis)",
+                cible,
+            )
+
+            return (
+                rep.choices[0].message.content or ""
+            ).strip()
+
+        except Exception as exc:
+
+            if not secours_actif or not _erreur_secourable(exc):
+                raise
+
+            _suspendre_mistral()
+
+            return _repondre_texte_gemini(
+                systeme,
+                historique,
+                max_tokens,
+                timeout,
+            )
+
 
     client = client_anthropic()
     if client is None:
@@ -219,6 +395,94 @@ def repondre_texte(systeme: str, historique: list, max_tokens: int = 500,
     return "".join(b.text for b in rep.content
                    if getattr(b, "type", None) == "text").strip()
 
+def _decider_action_gemini(
+    systeme,
+    texte,
+    image_b64,
+    schema,
+    nom_outil="agir",
+    description="Decide de la prochaine action.",
+):
+    client = client_gemini()
+
+    if client is None:
+        raise RuntimeError(
+            "Gemini Vision indisponible : clé absente."
+        )
+
+    cible = str(
+        reglage(
+            "gemini.modele_vision",
+            "gemini-2.5-flash"
+        )
+    )
+
+    rep = client.chat.completions.create(
+        model=cible,
+        messages=[
+            {
+                "role": "system",
+                "content": systeme,
+            },
+            {
+                "role": "user",
+                "content": [
+                    {
+                        "type": "text",
+                        "text": texte,
+                    },
+                    {
+                        "type": "image_url",
+                        "image_url": {
+                            "url": (
+                                "data:image/jpeg;base64,"
+                                + image_b64
+                            )
+                        },
+                    },
+                ],
+            },
+        ],
+        tools=[
+            {
+                "type": "function",
+                "function": {
+                    "name": nom_outil,
+                    "description": description,
+                    "parameters": schema,
+                },
+            }
+        ],
+        tool_choice="required",
+        max_tokens=1200,
+    )
+
+    enregistrer_usage(
+        rep,
+        "Gemini (Jarvis)",
+        cible,
+    )
+
+    calls = (
+        rep.choices[0].message.tool_calls or []
+    )
+
+    if not calls:
+        return {
+            "action": "bloque",
+            "raison": "Gemini n'a fourni aucune action."
+        }
+
+    arguments = calls[0].function.arguments or "{}"
+
+    action = json.loads(arguments)
+
+    if not isinstance(action, dict):
+        raise ValueError(
+            "Gemini a retourné une action invalide."
+        )
+
+    return action
 
 def repondre_vision(systeme: str, texte: str, image_b64: str,
                     max_tokens: int = 700, nom_modele: str = "",
@@ -288,6 +552,31 @@ def decider_action_vision(systeme: str, texte: str, image_b64: str,
                           fournisseur_force: str = "") -> dict:
     """Demande UNE action structuree a partir d'une capture JPEG."""
     provider = (fournisseur_force or fournisseur()).strip().lower()
+    if provider == "gemini":
+        return _decider_action_gemini(
+            systeme,
+            texte,
+            image_b64,
+            schema,
+            nom_outil,
+            description,
+        )
+
+    if provider == "mistral":
+
+        secours_actif = bool(
+            reglage("cloud.secours_actif", False)
+        )
+
+    if secours_actif and not _mistral_disponible():
+        return _decider_action_gemini(
+            systeme,
+            texte,
+            image_b64,
+            schema,
+            nom_outil,
+            description,
+        )
     cible = str(nom_modele or "").strip()
     incompatible = ((provider == "openai" and cible.lower().startswith("claude"))
                     or (provider == "anthropic"
@@ -350,9 +639,45 @@ def decider_action_vision(systeme: str, texte: str, image_b64: str,
                 break
             except Exception as e:
                 derniere = e
-                if getattr(e, "status_code", None) not in (400, 404, 422, 429):
-                    raise
+
+            statut = getattr(e, "status_code", None)
+
+            if statut in (403, 429, 500, 502, 503, 504):
+
+                if bool(reglage("cloud.secours_actif", False)):
+                    _suspendre_mistral()
+
+                    return _decider_action_gemini(
+                        systeme,
+                        texte,
+                        image_b64,
+                        schema,
+                        nom_outil,
+                        description,
+                    )
+
+                raise
+
+            if statut not in (400, 404, 422):
+                raise
         if rep is None:
+
+            if (
+                bool(reglage("cloud.secours_actif", False))
+                and derniere is not None
+                and _erreur_secourable(derniere)
+            ):
+                _suspendre_mistral()
+
+                return _decider_action_gemini(
+                    systeme,
+                    texte,
+                    image_b64,
+                    schema,
+                    nom_outil,
+                    description,
+                )
+
             raise derniere
         enregistrer_usage(rep, "Mistral (Jarvis)", cible)
         calls = getattr(rep.choices[0].message, "tool_calls", None) or []

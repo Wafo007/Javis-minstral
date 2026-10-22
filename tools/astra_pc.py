@@ -278,9 +278,29 @@ def executer_controle(tache: str) -> str:
                 nom_outil="agir_pc", description="Une action locale bornee sur Windows.",
                 nom_modele=modele, qualite=True, fournisseur_force=fournisseur)
         except Exception as exc:
-            LOG.exception("astra_pc: decision")
-            return f"Le pilotage de l'écran ({fournisseur}) n'est pas joignable pour le moment ({str(exc)[:100]})."
+            statut = getattr(exc, "status_code", None)
 
+            if statut == 429:
+                LOG.warning("astra_pc: quota API atteint")
+                return (
+                    "Astra est temporairement indisponible : "
+                    "le fournisseur IA a atteint sa limite de requêtes. "
+                    "Réessaie après la réinitialisation du quota."
+                )
+
+            if statut == 403:
+                LOG.warning("astra_pc: modèle non autorisé")
+                return (
+                    "Astra ne peut pas utiliser ce modèle "
+                    "avec ton abonnement actuel."
+                )
+
+            LOG.exception("astra_pc: decision")
+
+            return (
+                f"Le pilotage de l'écran ({fournisseur}) "
+                f"a rencontré une erreur : {str(exc)[:100]}"
+            )
         nom = str(action.get("action", "")).lower()
         if nom == "termine":
             return str(action.get("message") or "C'est fait avec Astra.")

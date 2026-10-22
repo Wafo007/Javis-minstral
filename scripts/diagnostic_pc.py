@@ -37,11 +37,35 @@ def t_fenetres():
 
 
 def t_premier_plan():
-    from tools import controle_pc as pc
-    h = ctypes.windll.user32.GetForegroundWindow()
-    f = next((x for x in pc._fenetres() if x[0] == h), None)
-    return f"fenetre active : {f[1][:50]!r} ({f[2]})" if f else "fenetre active introuvable"
+    """
+    Vérifie que Jarvis peut identifier la fenêtre
+    actuellement active sur Windows.
+    """
 
+    from tools import controle_pc as pc
+
+    # Utiliser la nouvelle méthode de contrôle Windows
+    fenetre = pc._fenetre_cible("")
+
+    # Le diagnostic doit échouer si aucune fenêtre
+    # active n'est détectée.
+    assert fenetre is not None, (
+        "Impossible d'identifier la fenêtre active Windows."
+    )
+
+    hwnd, titre, executable = fenetre
+
+    # Vérifier la validité des informations
+    assert hwnd, "Handle de fenêtre invalide."
+
+    assert titre or executable, (
+        "Fenêtre détectée mais aucune information disponible."
+    )
+
+    return (
+        f"fenetre active : {titre[:50]!r} "
+        f"({executable}) | HWND={hwnd}"
+    )
 
 def t_menu_demarrer():
     from tools import controle_pc as pc
