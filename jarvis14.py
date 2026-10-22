@@ -714,12 +714,16 @@ def repondre(historique):
     fournisseur = llm()
     if not fournisseur.disponible():
         mode = config.reglage("mode", "cloud")
+
         if mode == "local":
-            return ("Le modele local (Ollama) n'est pas joignable. Verifie qu'Ollama "
-                    "tourne et que le modele est telecharge.")
-        from core import cloud
-        return ("Ma cle OpenAI n'est pas configuree." if cloud.fournisseur() == "openai"
-                else "Ma cle Anthropic n'est pas configuree.")
+            return (
+                "Le modèle local Ollama n'est pas disponible."
+            )
+
+        return (
+            f"Le fournisseur {fournisseur.nom} n'est pas configuré "
+            "ou aucune clé API valide n'est disponible."
+        )
 
     fil_accuse = None
     accuse_donne = False

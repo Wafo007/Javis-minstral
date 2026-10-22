@@ -31,15 +31,23 @@ LOG = logging.getLogger("jarvis")
 
 
 class Bloc:
-    """Imite un bloc de contenu Anthropic (text ou tool_use)."""
+    """Bloc interne de Jarvis."""
 
-    def __init__(self, type, text=None, id=None, name=None, input=None):
+    def __init__(
+        self,
+        type,
+        text=None,
+        id=None,
+        name=None,
+        input=None,
+        extra_content=None
+    ):
         self.type = type
         self.text = text
         self.id = id
         self.name = name
         self.input = input
-
+        self.extra_content = extra_content
 
 class Reponse:
     def __init__(self, stop_reason, content):
@@ -321,95 +329,214 @@ class MistralProvider(ProviderLLM):
         return messages
 
     def repondre(self, systeme, historique, outils):
+        """Mistral principal, Gemini en secours automatique."""
+
+        secours_actif = bool(reglage("cloud.secours_actif", True))
+        secours_gemini = reglage("cloud.secours", "gemini") == "gemini"
+
+        def utiliser_gemini():
+            print("  [Jarvis] Basculement automatique vers Gemini.")
+            return GeminiProvider().repondre(
+                systeme, historique, outils
+            )
+
+        # Mistral déjà suspendu après une erreur précédente.
+        if secours_actif and secours_gemini and not cloud._mistral_disponible():
+            return utiliser_gemini()
+
         if self.client is None:
-            return Reponse("end", [Bloc("text", text=(
-                "La cle Mistral est absente. Ajoute mistral.cle dans config.yaml."))])
+            if secours_actif and secours_gemini:
+                return utiliser_gemini()
+            raise RuntimeError("Clé Mistral absente.")
+
         messages = self._traduire(systeme, historique)
+
         kwargs = {
             "model": self.modele,
             "messages": messages,
             "max_tokens": int(reglage("mistral.max_tokens", 1024)),
             "temperature": float(reglage("mistral.temperature", 0.3)),
         }
+
         outils_api = self._outils(outils)
+
         if outils_api:
             kwargs["tools"] = outils_api
             kwargs["parallel_tool_calls"] = True
+
         try:
-            import time as _t
-            secours = reglage("mistral.modeles_secours", ["ministral-8b-latest", "open-mistral-nemo"]) or []
-            rep, derniere = None, None
-            _ordre = [self.modele] + [m for m in secours if m != self.modele]
-            _ordre = [m for m in _ordre if m not in _MODELES_BLOQUES] or _ordre
-            if any(isinstance(c, dict) and c.get("type") == "image_url"
-                   for msg in kwargs.get("messages", []) if isinstance(msg.get("content"), list)
-                   for c in msg["content"]):
-                # capture d'ecran dans la conversation : seuls les modeles de vision conviennent
-                _ordre = [cloud.modele_vision_mistral()] + cloud.modeles_vision_secours()
-            for _modele in _ordre:
-                kwargs["model"] = _modele
-                for _essai in range(2):      # plan gratuit : debit limite (429) -> on patiente un peu
-                    try:
-                        rep = self.client.chat.completions.create(**kwargs)
-                        break
-                    except Exception as _e:
-                        derniere = _e
-                        if getattr(_e, "status_code", None) != 429:
-                            raise
-                        _h = getattr(getattr(_e, "response", None), "headers", {}) or {}
-                        if str(_h.get("x-ratelimit-limit-req-minute", "")) == "0":
-                            _MODELES_BLOQUES.add(_modele)
-                            print(f"  [mistral] {_modele} n'est pas disponible sur ton plan (0 requete/minute).")
-                            break
-                        if _essai == 0:
-                            print(f"  [mistral] 429 sur {_modele}, nouvel essai dans 3 s...")
-                            _t.sleep(3)
-                if rep is not None:
-                    if _modele != self.modele and _modele not in _SECOURS_ANNONCES:
-                        _SECOURS_ANNONCES.add(_modele)        # une seule fois par session
-                        print(f"  [mistral] reponse obtenue avec le modele de secours {_modele}.")
-                    break
-                print(f"  [mistral] {_modele} limite (429), je tente le modele suivant...")
-            if rep is None:
-                raise derniere
-            cloud.enregistrer_usage(rep, "Mistral (Jarvis)", self.modele)
-            message = rep.choices[0].message
-            blocs = []
-            texte = (message.content or "").strip()
-            if texte:
-                blocs.append(Bloc("text", text=texte))
-            for tc in (getattr(message, "tool_calls", None) or []):
-                brut = getattr(tc.function, "arguments", "{}") or "{}"
-                try:
-                    arguments = json.loads(brut) if isinstance(brut, str) else dict(brut)
-                except (ValueError, TypeError):
-                    LOG.warning("Mistral: arguments outil invalides (%s)", brut)
-                    arguments = {}
-                blocs.append(Bloc(
+            rep = self.client.chat.completions.create(**kwargs)
+
+        except Exception as e:
+            code = getattr(e, "status_code", None)
+
+            if (
+                secours_actif
+                and secours_gemini
+                and code in (403, 429, 500, 502, 503, 504)
+            ):
+                cloud._suspendre_mistral()
+                LOG.warning(
+                    "Mistral indisponible (HTTP %s), secours Gemini.",
+                    code
+                )
+                return utiliser_gemini()
+
+            raise
+
+        cloud.enregistrer_usage(
+            rep,
+            "Mistral (Jarvis)",
+            self.modele
+        )
+
+        message = rep.choices[0].message
+        blocs = []
+
+        texte = (message.content or "").strip()
+
+        if texte:
+            blocs.append(Bloc("text", text=texte))
+
+        for tc in (getattr(message, "tool_calls", None) or []):
+            brut = getattr(tc.function, "arguments", "{}") or "{}"
+
+            try:
+                arguments = (
+                    json.loads(brut)
+                    if isinstance(brut, str)
+                    else dict(brut)
+                )
+            except (ValueError, TypeError):
+                LOG.warning("Mistral: arguments outil invalides")
+                arguments = {}
+
+            blocs.append(
+                Bloc(
                     "tool_use",
                     id=getattr(tc, "id", None),
                     name=getattr(tc.function, "name", ""),
                     input=arguments,
-                ))
-            stop = "tool_use" if any(b.type == "tool_use" for b in blocs) else "end"
-            return Reponse(stop, blocs)
-        except Exception as e:
-            LOG.exception("mistral: appel Chat Completions en echec")
-            code = getattr(e, "status_code", None)
-            detail = str(getattr(e, "message", e))[:300].replace("\n", " ")
-            print(f"  [mistral] ERREUR {type(e).__name__}{f' HTTP {code}' if code else ''} "
-                  f"(modele {self.modele}) : {detail}")
-            if code in (401, 403):
-                msg = "La clé Mistral est refusée. Vérifie mistral.cle dans config.yaml."
-            elif code == 429:
-                msg = "La limite du plan gratuit Mistral est atteinte. Réessaie dans une minute."
-            elif code in (400, 404, 422):
-                msg = "Mistral a refusé la requête. Regarde le message d'erreur dans la console."
-            else:
-                msg = "Je n'arrive pas à joindre Mistral pour le moment. Vérifie la connexion Internet."
-            return Reponse("end", [Bloc("text", text=msg)])
+                    extra_content=getattr(tc, "extra_content", None),
+                )
+            )
+
+        stop = (
+            "tool_use"
+            if any(b.type == "tool_use" for b in blocs)
+            else "end"
+        )
+
+        return Reponse(stop, blocs)
 
 
+# --------------------------------------------------------------- Gemini (cloud)
+
+class GeminiProvider(MistralProvider):
+    """Gemini via l'API OpenAI-compatible.
+
+    Réutilise la traduction des messages et des outils de MistralProvider
+    pour préserver le format interne de Jarvis.
+    """
+
+    nom = "Gemini"
+
+    def __init__(self, modele=None):
+        self.modele = modele or reglage("gemini.modele", "gemini-3.5-flash-lite")
+        self.qualite = False
+        self.client = cloud.client_gemini()
+
+    def _traduire(self, systeme, historique):
+        messages = super()._traduire(systeme, historique)
+
+        for message in messages:
+            if message.get("role") != "assistant":
+                continue
+
+            appels = message.get("tool_calls") or []
+
+            for appel in appels:
+                identifiant = appel.get("id")
+
+                for ancien in historique:
+                    if ancien.get("role") != "assistant":
+                        continue
+
+                    contenu = ancien.get("content")
+
+                    if not isinstance(contenu, list):
+                        continue
+
+                    for bloc in contenu:
+                        if (
+                            getattr(bloc, "type", None) == "tool_use"
+                            and getattr(bloc, "id", None) == identifiant
+                        ):
+                            extra = getattr(bloc, "extra_content", None)
+
+                            if extra:
+                                appel["extra_content"] = extra
+
+        return messages
+
+    def repondre(self, systeme, historique, outils):
+        if not self.disponible():
+            raise RuntimeError("Gemini n'est pas configuré.")
+
+        kwargs = {
+            "model": self.modele,
+            "messages": self._traduire(systeme, historique),
+            "max_tokens": int(reglage("gemini.max_tokens", 1024)),
+        }
+
+        outils_api = self._outils(outils)
+
+        if outils_api:
+            kwargs["tools"] = outils_api
+            kwargs["tool_choice"] = "auto"
+
+        rep = self.client.chat.completions.create(**kwargs)
+
+        cloud.enregistrer_usage(
+            rep,
+            "Gemini (Jarvis)",
+            self.modele
+        )
+
+        message = rep.choices[0].message
+        blocs = []
+
+        texte = (message.content or "").strip()
+
+        if texte:
+            blocs.append(Bloc("text", text=texte))
+
+        for tc in (getattr(message, "tool_calls", None) or []):
+            brut = getattr(tc.function, "arguments", "{}") or "{}"
+
+            try:
+                arguments = json.loads(brut) if isinstance(brut, str) else dict(brut)
+            except (ValueError, TypeError):
+                LOG.warning("Gemini: arguments outil invalides")
+                arguments = {}
+
+            blocs.append(
+                Bloc(
+                    "tool_use",
+                    id=getattr(tc, "id", None),
+                    name=getattr(tc.function, "name", ""),
+                    input=arguments,
+                    extra_content=(
+                        getattr(tc, "model_extra", None) or {}
+                    ).get("extra_content"),
+                )
+            )
+
+        stop = "tool_use" if any(
+            bloc.type == "tool_use" for bloc in blocs
+        ) else "end"
+
+        return Reponse(stop, blocs)
 # --------------------------------------------------------------- Ollama (local)
 
 class OllamaProvider(ProviderLLM):
@@ -542,9 +669,16 @@ def llm():
             if fournisseur == "openai":
                 _LLM = OpenAIProvider(cloud.modele(qualite=qualite), qualite=qualite)
             elif fournisseur == "mistral":
-                _LLM = MistralProvider(cloud.modele(qualite=qualite), qualite=qualite)
+                _LLM = MistralProvider(
+                    cloud.modele(qualite=qualite),
+                    qualite=qualite
+                )
+            elif fournisseur == "gemini":
+                _LLM = GeminiProvider()
             else:
-                _LLM = ClaudeProvider(cloud.modele(qualite=qualite))
+                _LLM = ClaudeProvider(
+                    cloud.modele(qualite=qualite)
+                )
         LOG.info("provider LLM : %s (mode %s, modele %s)",
                  _LLM.nom, m, getattr(_LLM, "modele", "-"))
     return _LLM
