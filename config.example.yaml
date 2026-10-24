@@ -29,6 +29,7 @@ astra_pc:
   modele_vision: mistral-small-latest
   max_actions: 5
   timeout: 90
+  verification_finale: true    # un second regard sur l'ecran avant d'annoncer « termine » (1 appel de plus)
 openai:
   cle: sk-proj-...
   modele: gpt-5.6-luna
@@ -493,3 +494,10 @@ controle_pc:
     spotify: ctrl+l
     discord: ctrl+k
     whatsapp: ctrl+f
+  pause_etapes: 1.2            # secondes entre deux etapes d'une commande enchainee
+  autoriser_terminal: true    # true = taper_texte peut ecrire dans un terminal (deconseille)
+
+# Operations sur fichiers (tools/fichiers.py) : Jarvis ne touche QUE a ces dossiers.
+fichiers:
+  racines:
+    - ~/Documents/Jarvis

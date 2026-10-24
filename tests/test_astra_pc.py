@@ -63,7 +63,9 @@ class AstraPcTests(unittest.TestCase):
             {"action": "cliquer", "x": 20, "y": 30},
             {"action": "termine", "message": "Réglage ouvert."},
         ]
-        with patch("tools.astra_pc.reglage", side_effect=lambda cle, defaut=None: defaut):
+        def reglages(cle, defaut=None):          # ce test cible la boucle, sans verification finale
+            return False if cle == "astra_pc.verification_finale" else defaut
+        with patch("tools.astra_pc.reglage", side_effect=reglages):
             resultat = astra_pc.executer_controle("ouvre les paramètres audio")
         self.assertEqual(resultat, "Réglage ouvert.")
         self.assertEqual(decider.call_count, 2)

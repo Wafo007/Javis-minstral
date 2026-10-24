@@ -33,6 +33,9 @@ def t_fenetres():
     from tools import controle_pc as pc
     f = pc._fenetres()
     assert f, "aucune fenetre detectee"
+    # Trace S1 : handle, titre et processus de chaque fenetre (les 8 plus hautes dans le z-order).
+    for hwnd, titre, exe in f[:8]:
+        print(f"         HWND={hwnd} exe={exe or '?'} titre={titre[:60]!r}")
     return f"{len(f)} fenetres, ex. : " + ", ".join(sorted({x[2] for x in f if x[2]})[:6])
 
 
@@ -69,8 +72,12 @@ def t_premier_plan():
 
 def t_menu_demarrer():
     from tools import controle_pc as pc
-    apps = pc._apps_demarrer()
-    assert apps, "Get-StartApps ne renvoie rien (PowerShell bloque ?)"
+    apps = pc._apps_demarrer(forcer=True)
+    if not apps:
+        # Get-StartApps vide : les secours (executables integres, App Paths) doivent suffire.
+        assert pc._EXECUTABLES_INTEGRES, "aucun secours disponible"
+        return ("Get-StartApps VIDE (PowerShell bloque ?) ; secours actifs : "
+                + ", ".join(sorted(set(pc._EXECUTABLES_INTEGRES.values()))))
     trouves = {n: bool(pc.choisir_app(apps, n)) for n in ("chrome", "firefox", "edge", "spotify", "discord")}
     return f"{len(apps)} applications ; trouvees : " + ", ".join(n for n, ok in trouves.items() if ok)
 
@@ -126,8 +133,13 @@ def t_chrome():
 
 
 def t_playwright():
-    import playwright  # noqa: F401
-    return "module playwright present"
+    """Chaine COMPLETE (import, greenlet, sync_api, demarrage du moteur, chromium) : un simple
+    « import playwright » reussit meme quand _greenlet est casse."""
+    from core import playwright_partage
+    etapes = playwright_partage.diagnostiquer(lancer_navigateur=True)
+    echec = [f"{nom} : {detail}" for nom, ok, detail in etapes if not ok]
+    assert etapes and not echec, " ; ".join(echec) or "diagnostic vide"
+    return "chaine complete OK (" + ", ".join(n for n, _, _ in etapes) + ")"
 
 
 def t_cdp():

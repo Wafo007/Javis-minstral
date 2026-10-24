@@ -137,7 +137,7 @@ _DOMAINES = (
      {"agenda", "loopstr", "suivi"}),
     (("spotify", "playlist", "musique", "chanson", "morceau", "netflix",
       "volume", "pause", "lecture", "piste", "sortie audio"),
-     {"spotify", "media", "musique", "audio", "systeme"}),
+     {"spotify", "media", "musique", "audio", "systeme", "controle_pc"}),
     (("lumiere", "lampe", "hue", "amaran", "clim", "climatisation",
       "ventilateur", "prise", "alexa", "echo", "domotique"),
      {"lumieres", "amaran", "alexa", "google_home", "modes", "scenes"}),
@@ -145,7 +145,18 @@ _DOMAINES = (
       "gestes visibles", "regarde mes mains", "webcam"), {"gestes"}),
     (("ecran", "fenetre", "souris", "clique", "clic", "ordinateur", " pc ",
       "application", "logiciel", "dossier", "telechargements", "parametre"),
-     {"ecran", "souris", "apps", "systeme", "astra_pc", "gestes", "stats", "controle_pc"}),
+     {"ecran", "souris", "apps", "systeme", "astra_pc", "gestes", "stats", "controle_pc", "fichiers"}),
+    (("fichier", "fichiers", "document texte", "corbeille"), {"fichiers", "apps", "controle_pc"}),
+    (("code source", "ton code", "tes fichiers de code", "te modifier", "modifie ton", "corrige ton code",
+      "ameliore ton code", "auto modification"),
+     {"mon_code", "fichiers", "controle_pc"}),
+    # Applications Windows nommees, saisie au clavier, bascule de fenetre, sauvegarde : outils de
+    # controle du PC. « Bloc-notes » est neutralise plus bas (sinon il declenchait le domaine « notes »).
+    ((" blocapp ", " notepad ", " calculatrice ", " vs code ", " vscode ", " visual studio code ",
+      " word ", " excel ", " powerpoint ", " explorateur ", " paint ",
+      " tape ", " taper ", " ecris ", " ecrire ", " saisis ", " saisir ", " enregistre ",
+      " sauvegarde ", " passe sur ", " bascule sur ", " appuie ", " appuyer ", " ctrl ", " raccourci "),
+     {"ecran", "souris", "apps", "systeme", "astra_pc", "controle_pc"}),
     (("chrome", "navigateur", "onglet", "site", "page web", "internet",
       "cherche sur le web", "recherche web", "reserve", "reservation"),
      {"navigateur", "web", "reservation"}),
@@ -188,6 +199,23 @@ _MARQUES_DEMANDE = (
 )
 
 
+_VERBES_OUVERTURE_APP = {"ouvre", "ouvrir", "lance", "lancer", "demarre", "demarrer"}
+
+
+_ACTIONS_NAVIGATION = {"ouvre", "ouvrir", "va", "aller", "lance", "lancer", "joue", "jouer", "mets", "mettre",
+                       "recherche", "rechercher", "cherche", "chercher", "regarde", "clique", "cliquer"}
+_MOTS_CREATION = {"script", "hook", "hooks", "accroche", "accroches", "idee", "idees", "inspiration",
+                  "inspirations", "storyboard", "reecris", "reecrire", "analyse", "analyser", "synthese",
+                  "hermes", "veille", "compare", "comparaison"}
+
+
+def _est_commande_lecture_web(normalise: str) -> bool:
+    """Vrai pour « ouvre le navigateur, va sur YouTube, lance la premiere video » (action, pas reflexion)."""
+    mots = set(normalise.split())
+    return bool(mots & _ACTIONS_NAVIGATION) and not (mots & _MOTS_CREATION) \
+        and bool({"youtube", "video", "videos", "navigateur", "chrome"} & mots)
+
+
 def modules_pour_phrase(phrase: str) -> set[str] | None:
     """Modules utiles au LLM, ensemble vide pour une réponse sans outil.
 
@@ -197,11 +225,23 @@ def modules_pour_phrase(phrase: str) -> set[str] | None:
     normalise = " ".join(re.sub(
         r"[^a-z0-9]+", " ", sans_accents(str(phrase or "").lower())
     ).split())
+    # « Bloc-notes » est une APPLICATION Windows, pas la prise de notes de Jarvis (module notes) :
+    # on la neutralise avant de chercher le domaine « note ».
+    normalise = re.sub(r"\bbloc notes?\b", "blocapp", normalise)
     enveloppe = f" {normalise} "
     modules = set()
     for expressions, candidats in _DOMAINES:
         if any(expr in enveloppe for expr in expressions):
             modules.update(candidats)
+    if modules and "navigateur" not in modules and set(normalise.split()) & _VERBES_OUVERTURE_APP:
+        # « ouvre / lance X » : le lanceur d'applications doit toujours etre offert, quel que soit le
+        # domaine de X (Discord, OBS, Spotify...), sinon le LLM improvise avec un autre outil.
+        modules.update({"apps", "controle_pc", "systeme"})
+    if "deleguer_a_hermes" in modules and _est_commande_lecture_web(normalise):
+        # Journal reel : « ouvre mon navigateur, va sur YouTube, lance la premiere video » partait chez
+        # Hermes (reflexion de fond) au lieu de piloter le navigateur : on retire la delegation.
+        modules -= {"deleguer_a_hermes", "contenu", "suivi"}
+        modules.update({"navigateur", "web", "controle_pc", "astra_pc", "apps"})
     if modules:
         # Ces outils transverses sont petits et fréquemment nécessaires après une
         # action spécialisée (réponse, changement de mode, état des tâches).

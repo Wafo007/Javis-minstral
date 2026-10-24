@@ -76,7 +76,8 @@ def ouvrir_application(nom: str) -> str:
         maj = base / "Update.exe"
         if maj.exists():
             subprocess.Popen([str(maj), "--processStart", "Discord.exe"])
-            return "Discord lance."
+            from tools.controle_pc import verifier_ouverture
+            return verifier_ouverture("Discord", delai=15.0)
         return "Discord introuvable."
 
     # Liste fermee : un nom inconnu n'est JAMAIS passe a os.startfile (sinon un
@@ -94,7 +95,10 @@ def ouvrir_application(nom: str) -> str:
             os.startfile(cible)                        # noqa: S606 (pas de shell)
         except AttributeError:
             subprocess.Popen(["cmd", "/c", "start", "", cible], shell=False)
-        return f"{nom} lance."
+        # Le lancement est envoye ; on CONSTATE ensuite la fenetre (et son focus) avant d'annoncer
+        # quoi que ce soit : « lance » ne veut pas dire « ouvert ».
+        from tools.controle_pc import verifier_ouverture
+        return verifier_ouverture(nom)
     except Exception as e:
         return f"Impossible de lancer {nom} : {e}"
 

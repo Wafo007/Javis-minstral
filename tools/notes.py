@@ -119,9 +119,11 @@ def notes_du_jour() -> str:
 
 @outil(
     nom="noter",
-    description="Enregistre une note/idee que l'utilisateur dicte. Pour 'note cette "
-                "idee : ...', 'ajoute a mes courses : ...', 'rappelle-moi de ...'. "
-                "Choisis la categorie (idees, courses, taches) selon le contenu.",
+    description="Enregistre une note/idee dans les NOTES INTERNES de Jarvis (fichiers notes/). Pour "
+                "'note cette idee : ...', 'ajoute a mes courses : ...', 'rappelle-moi de ...'. "
+                "Choisis la categorie (idees, courses, taches) selon le contenu. N'ECRIT JAMAIS dans "
+                "une application : pour 'ecris ... dans le Bloc-notes / Word' ou 'tape ...', utilise "
+                "taper_texte (et PAS noter).",
     parametres={
         "type": "object",
         "properties": {

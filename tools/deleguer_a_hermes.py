@@ -18,6 +18,7 @@ Securite :
 - le resultat lu a voix haute passe par core.confidentialite.filtrer().
 Voir docs/hermes.md.
 """
+import logging
 import threading
 import time
 import uuid
@@ -32,6 +33,7 @@ from pathlib import Path
 from core import voix, confidentialite
 from core.config import reglage
 from core.registre import outil
+from core.resultat import ResultatOutil
 from core.util import sans_accents
 
 # Magasin de certificats Windows (Malwarebytes/AV) puis requests.
@@ -41,6 +43,8 @@ try:
 except Exception:
     pass
 import requests
+
+LOG = logging.getLogger("jarvis.hermes")
 
 # ---- Registre des taches Hermes (COMMAND CENTER) + part Hermes (tokens totaux) ----
 _LOCK = threading.Lock()
@@ -365,9 +369,11 @@ def appeler_hermes_brut(prompt: str, session: str = "", timeout=None):
         return _appeler_hermes_cli(prompt, timeout)
     try:
         return _appeler_hermes_http(prompt, session, timeout)
-    except Exception:
+    except Exception as exc:
         if transport == "http":
             raise
+        # La bascule n'est plus silencieuse : la cause de l'echec de l'API reste dans les journaux.
+        LOG.warning("Hermes API indisponible (%s : %s), repli sur le CLI", type(exc).__name__, str(exc)[:160])
         return _appeler_hermes_cli(prompt, timeout)
 
 
@@ -408,8 +414,48 @@ def _journaliser(tache: str, resultat: str) -> None:
         pass
 
 
+_REPONSES_VIDES = ("(reponse vide d'hermes)", "(réponse vide d'hermes)")
+
+
+def reponse_exploitable(texte) -> bool:
+    """Une reponse vide ou le texte de remplissage n'est PAS un resultat."""
+    t = str(texte or "").strip()
+    return bool(t) and t.lower() not in _REPONSES_VIDES
+
+
+def _chemin_livrable(livrable: str) -> Path:
+    chemin = Path(str(livrable).strip().strip('"\'')).expanduser()
+    if not chemin.is_absolute():
+        base = Path(reglage("hermes.workspace", "") or Path.home() / "hermes-workspace")
+        chemin = base / chemin
+    return chemin
+
+
+def verifier_livrable(livrable: str):
+    """Constate qu'un fichier demande existe, n'est pas vide et se lit. Renvoie (ok, detail).
+
+    Lecture seule : on ne renvoie jamais le contenu, seulement un constat.
+    """
+    if not str(livrable or "").strip():
+        return True, "aucun livrable attendu"
+    chemin = _chemin_livrable(livrable)
+    try:
+        if not chemin.exists():
+            return False, f"le fichier « {chemin.name} » n'existe pas"
+        if not chemin.is_file():
+            return False, f"« {chemin.name} » n'est pas un fichier"
+        if chemin.stat().st_size <= 0:
+            return False, f"le fichier « {chemin.name} » est vide"
+        with chemin.open("rb") as fh:
+            fh.read(2048)
+    except OSError as exc:
+        return False, f"le fichier « {chemin.name} » est illisible ({exc.__class__.__name__})"
+    return True, f"le fichier « {chemin.name} » est present et lisible"
+
+
 def deleguer_en_fond(tache: str, intro: str = "Hermes a termine. ",
-                     nom_thread: str = "deleguer-hermes", session: str = "") -> str:
+                     nom_thread: str = "deleguer-hermes", session: str = "",
+                     livrable: str = "") -> str:
     """Delegue une tache a Hermes en tache de fond (session nommee optionnelle),
     la SUIT comme une tache (registre), journalise le resultat complet, et annonce a
     voix haute un resume court (filtre confidentialite). Renvoie tout de suite
@@ -421,14 +467,29 @@ def deleguer_en_fond(tache: str, intro: str = "Hermes a termine. ",
         try:
             resultat, tokens, cout, modele_utilise = _appeler_hermes(
                 tache, session_effective)
+            if not reponse_exploitable(resultat):
+                # Pas de resultat = pas de succes : on ne dit JAMAIS « termine » sur du vide.
+                _finir_tache(t, "echouee", resume="Hermes n'a renvoye aucune reponse.",
+                             tokens=tokens, cout=cout, modele=modele_utilise)
+                voix.parler("Hermes n'a renvoye aucune reponse : la tache n'a pas abouti.")
+                return
             _journaliser(tache, resultat)
             resume = confidentialite.filtrer(
                 _resume_vocal(resultat), max_car=int(reglage("hermes.resume_max", 500)))
             a_valider = _MARQUEUR_VALIDATION in (resume or "") or "[A VALIDER]" in (resultat[:400] or "")
             resume = resume.replace(_MARQUEUR_VALIDATION, "").strip()
+            livrable_ok, constat = verifier_livrable(livrable)
+            if not livrable_ok:
+                # Hermes a repondu mais ce qui etait demande n'existe pas : succes PARTIEL, dit tel quel.
+                _finir_tache(t, "partielle", resume=f"Reponse recue, mais {constat}.",
+                             tokens=tokens, cout=cout, modele=modele_utilise)
+                voix.parler(f"Hermes a repondu, mais {constat}. Je ne considere pas la tache comme terminee.")
+                return
             _finir_tache(t, "en_attente_validation" if a_valider else "terminee",
                          resume=resume, tokens=tokens, cout=cout,
                          modele=modele_utilise)
+            if livrable:
+                resume = f"{resume} Verifie : {constat}.".strip()
             prefixe = intro if not a_valider else "Hermes attend ta validation. "
             voix.parler(prefixe + resume)
             try:                                  # retour Hermes aussi a l'ecran (overlay)
@@ -445,7 +506,9 @@ def deleguer_en_fond(tache: str, intro: str = "Hermes a termine. ",
             _pousser_hud()
     threading.Thread(target=worker, daemon=True,
                      name=f"{nom_thread}-{t['id']}").start()
-    return "Je confie ça à Hermes. Je te préviens dès que c'est prêt."
+    return ResultatOutil("Je confie ça à Hermes. Je te préviens dès que c'est prêt.",
+                         succes=True, verifie=False,
+                         details={"tache_id": t["id"], "session": session_effective, "livrable": livrable})
 
 
 @outil(
@@ -471,19 +534,23 @@ def deleguer_en_fond(tache: str, intro: str = "Hermes a termine. ",
             "session": {"type": "string",
                         "description": "Nom court de la session (optionnel) pour paralleliser "
                                        "plusieurs delegations independantes. Ex. 'veille-ia'."},
+            "livrable": {"type": "string",
+                         "description": "Chemin du FICHIER que l'utilisateur attend (optionnel). S'il est "
+                                        "donne, Jarvis verifie qu'il existe et se lit avant d'annoncer que "
+                                        "la tache est terminee."},
         },
         "required": ["tache"],
     },
 )
-def deleguer_a_hermes(tache: str, session: str = "") -> str:
+def deleguer_a_hermes(tache: str, session: str = "", livrable: str = "") -> str:
     """Envoie la tache a Hermes en tache de fond ; previent a voix haute a la fin."""
     tache = (tache or "").strip()
     if not tache:
-        return "Je n'ai pas compris la tache a deleguer."
-    return deleguer_en_fond(tache, session=(session or "").strip())
+        return ResultatOutil("Je n'ai pas compris la tache a deleguer.", succes=False, erreur="vide")
+    return deleguer_en_fond(tache, session=(session or "").strip(), livrable=(livrable or "").strip())
 
 
-_ETIQ = {"en_cours": "en cours", "terminee": "terminée",
+_ETIQ = {"en_cours": "en cours", "terminee": "terminée", "partielle": "partielle",
          "en_attente_validation": "en attente de ta validation", "echouee": "échouée"}
 
 
@@ -501,6 +568,7 @@ def taches_hermes() -> str:
     encours = [t for t in taches if t["statut"] == "en_cours"]
     valider = [t for t in taches if t["statut"] == "en_attente_validation"]
     finies = [t for t in taches if t["statut"] == "terminee"][-3:]
+    echouees = [t for t in taches if t["statut"] in ("echouee", "partielle")][-3:]
     bouts = []
     if encours:
         noms = ", ".join(f"« {t['tache'][:40]} »" for t in encours[:4])
@@ -508,6 +576,9 @@ def taches_hermes() -> str:
     if valider:
         noms = ", ".join(f"« {t['tache'][:40]} »" for t in valider[:3])
         bouts.append(f"{len(valider)} en attente de ta validation : {noms}")
+    if echouees:
+        noms = ", ".join(f"« {t['tache'][:40]} » ({_ETIQ.get(t['statut'], t['statut'])})" for t in echouees)
+        bouts.append(f"{len(echouees)} sans succès complet : {noms}")
     if finies and not encours and not valider:
         bouts.append("dernière terminée : " + (finies[-1]["resume"] or finies[-1]["tache"])[:120])
     return ". ".join(bouts) + "." if bouts else "Tout est traité, rien en attente."

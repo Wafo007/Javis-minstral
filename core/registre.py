@@ -115,6 +115,7 @@ _NON_LOCAUX = {
     "browser_interact",
     "lire_netflix",
     "controle_pc_astra",
+    "code_modification_demarrer", "code_modification_ecrire", "code_modification_enregistrer",
     "call_with_message", "call_and_book", "cout_appels",
     "instagram_resume", "rafraichir_instagram",
     "get_mentions_summary", "get_channel_summary",
@@ -166,6 +167,10 @@ _N3 = frozenset({
     "start_stream",
     # Ajouter un executable lance ensuite sans question : jamais « toujours ».
     "ajouter_app",
+    # Suppression de fichiers : confirmation a chaque fois (la corbeille Jarvis reste recuperable).
+    "fichier_supprimer",
+    # Enregistrer une modification de son propre code : accord vocal a chaque fois.
+    "code_modification_enregistrer",
 })
 
 
@@ -227,6 +232,14 @@ def phrase_attente(noms):
 
 
 # ---------------------------------------------------------------- confirmation
+
+def arguments_manquants(outil_obj, args=None):
+    """Noms des parametres obligatoires absents (ou vides) : evite de demander une confirmation
+    vocale pour une action qui echouerait ensuite (ex. controle_pc_astra appele sans « tache »)."""
+    requis = (getattr(outil_obj, "parametres", None) or {}).get("required") or []
+    args = args or {}
+    return [n for n in requis if args.get(n) in (None, "")]
+
 
 def mettre_en_attente(outil_obj, args):
     """Range une action a confirmer. Renvoie un resultat neutre pour Claude."""

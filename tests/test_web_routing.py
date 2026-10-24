@@ -22,7 +22,7 @@ class WebRoutingTests(unittest.TestCase):
 
     def test_ouvrir_application_reroute_netflix(self):
         with patch("tools.navigateur.browser_open", return_value="Netflix ouvert.") as ouvrir, \
-                patch.object(systeme.os, "startfile") as startfile:
+                patch.object(systeme.os, "startfile", create=True) as startfile:
             resultat = systeme.ouvrir_application("netflix")
 
         self.assertEqual(resultat, "Netflix ouvert.")
@@ -30,11 +30,16 @@ class WebRoutingTests(unittest.TestCase):
         startfile.assert_not_called()
 
     def test_utilitaire_windows_reste_une_application(self):
+        from core.resultat import ResultatOutil
+        verif = ResultatOutil("calculatrice est ouvert.", succes=True, verifie=True)
         with patch("core.poste_distant.executer_principal", return_value=None), \
-                patch.object(systeme.os, "startfile") as startfile:
+                patch("tools.controle_pc.verifier_ouverture", return_value=verif) as verifier, \
+                patch.object(systeme.os, "startfile", create=True) as startfile:
             resultat = systeme.ouvrir_application("calculatrice")
 
-        self.assertEqual(resultat, "calculatrice lance.")
+        # Le lancement n'est plus annonce « lance » a l'aveugle : la fenetre est constatee.
+        self.assertEqual(resultat, "calculatrice est ouvert.")
+        verifier.assert_called_once_with("calculatrice")
         startfile.assert_called_once_with("calc")
 
     def test_ouvertures_simples_contournent_astra(self):

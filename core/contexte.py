@@ -35,9 +35,19 @@ def recentes(instant=None):
 def consigne(instant=None):
     """Complement de consigne : style de commande, actions multiples, corrections, contexte."""
     lignes = [
-        "Commande simple reussie : reponds en quelques mots (« Chrome est ouvert. »). Plusieurs actions "
-        "dans une phrase : appelle tous les outils. Correction (« non, Firefox », « finalement 30 ») : "
-        "refais la derniere action avec la nouvelle valeur.",
+        "Commande simple reussie : reponds en 3 a 6 mots (ex. « Chrome est ouvert. »), sans formule "
+        "de politesse. Details seulement pour une demande complexe.",
+        "Si la demande contient plusieurs actions (« ouvre Chrome, lance YouTube et mets le volume a "
+        "30 % »), appelle TOUS les outils necessaires, dans l'ordre, puis resume en une phrase.",
+        "Si l'utilisateur corrige (« non, Firefox », « finalement 30 »), refais la derniere action avec "
+        "la valeur corrigee, sans redemander ni confirmer. Une suite (« et apres-demain ? ») garde le "
+        "sujet precedent.",
+        "Pour ECRIRE du texte dans une application Windows (Bloc-notes, Word...) : ouvre-la avec l'outil "
+        "d'ouverture d'application, puis appelle taper_texte avec le texte EXACT dicte (ponctuation et "
+        "accents compris) et fenetre=<application>. L'outil noter sert UNIQUEMENT aux notes internes de "
+        "Jarvis, jamais a saisir du texte dans une fenetre.",
+        "N'annonce une action reussie que si l'outil l'a confirmee ; s'il signale un echec, un doute ou "
+        "« non verifie », dis-le tel quel au lieu d'affirmer que c'est fait.",
     ]
     actions = recentes(instant)
     if actions:

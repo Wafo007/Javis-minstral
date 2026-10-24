@@ -50,6 +50,9 @@ def _absent():
     if not _chrome_exe():
         return ("Je ne trouve pas Google Chrome. Installe-le ou renseigne navigateur.chrome_exe "
                 "dans config.yaml.")
+    if "greenlet" in _ERREUR[0].lower() or "dll load failed" in _ERREUR[0].lower():
+        from core.playwright_partage import expliquer_erreur
+        return expliquer_erreur(RuntimeError(_ERREUR[0]))
     if "ModuleNotFoundError" in _ERREUR[0] or "playwright" in _ERREUR[0].lower():
         return "Le module Playwright est absent. Lance : uv sync, puis relance Jarvis."
     return _MSG_ABSENT + (f" (détail : {_ERREUR[0]})" if _ERREUR[0] else "")

@@ -11,6 +11,13 @@ from core import transcription
 
 ROOT = Path(__file__).resolve().parents[1]
 
+try:                                    # faster-whisper est une dependance optionnelle (absente sous
+    import faster_whisper               # Windows ARM64, en CI Linux...) : on la simule pour ces tests.
+except ImportError:
+    import sys
+    import types
+    sys.modules["faster_whisper"] = types.ModuleType("faster_whisper")
+
 
 def reglages(**valeurs):
     return lambda cle, defaut=None: valeurs.get(cle, defaut)

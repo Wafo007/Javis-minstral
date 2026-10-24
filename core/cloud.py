@@ -562,13 +562,11 @@ def decider_action_vision(systeme: str, texte: str, image_b64: str,
             description,
         )
 
-    if provider == "mistral":
+    # Defini pour TOUS les fournisseurs (il n'existait que pour Mistral : un appel
+    # OpenAI/Anthropic levait UnboundLocalError avant tout appel reseau).
+    secours_actif = bool(reglage("cloud.secours_actif", False))
 
-        secours_actif = bool(
-            reglage("cloud.secours_actif", False)
-        )
-
-    if secours_actif and not _mistral_disponible():
+    if provider == "mistral" and secours_actif and not _mistral_disponible():
         return _decider_action_gemini(
             systeme,
             texte,
@@ -639,27 +637,19 @@ def decider_action_vision(systeme: str, texte: str, image_b64: str,
                 break
             except Exception as e:
                 derniere = e
+                statut = getattr(e, "status_code", None)
 
-            statut = getattr(e, "status_code", None)
+                if statut in (403, 429, 500, 502, 503, 504):
+                    # Quota/panne : bascule immediate sur Gemini si le secours est actif ;
+                    # sinon on essaie le modele de vision suivant avant d'abandonner.
+                    if secours_actif:
+                        _suspendre_mistral()
+                        return _decider_action_gemini(
+                            systeme, texte, image_b64, schema, nom_outil, description)
+                    continue
 
-            if statut in (403, 429, 500, 502, 503, 504):
-
-                if bool(reglage("cloud.secours_actif", False)):
-                    _suspendre_mistral()
-
-                    return _decider_action_gemini(
-                        systeme,
-                        texte,
-                        image_b64,
-                        schema,
-                        nom_outil,
-                        description,
-                    )
-
-                raise
-
-            if statut not in (400, 404, 422):
-                raise
+                if statut not in (400, 404, 422):
+                    raise
         if rep is None:
 
             if (

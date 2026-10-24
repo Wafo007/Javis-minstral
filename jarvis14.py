@@ -112,6 +112,12 @@ SYSTEME_BASE = (
     "d'apres l'image. Pour ouvrir un site, une URL, Netflix/YouTube ou faire une "
     "recherche web, utilise browser_open. Pour un logiciel configure, utilise "
     "launch_app. N'utilise ouvrir_application que pour les utilitaires Windows. "
+    "Pour ECRIRE ou TAPER du texte dans une application (Bloc-notes, Word, un champ), "
+    "ouvre ou active l'application puis appelle taper_texte avec le texte exact et "
+    "fenetre=<application> ; l'outil noter range seulement une idee dans les notes de "
+    "Jarvis et ne doit jamais servir a saisir du texte dans une fenetre. Ne dis jamais "
+    "qu'une action est faite, ou qu'une application ne s'est pas ouverte, sans t'appuyer "
+    "sur le retour de l'outil : s'il indique un echec ou « non verifie », rapporte-le tel quel. "
     "Pour lire un titre ou une playlist Spotify, utilise lire_spotify ; pour une "
     "série ou un film Netflix précis, utilise lire_netflix ; pour pause, suivant "
     "ou précédent, utilise controler_media. Ces actions ne nécessitent pas Astra. "
@@ -558,6 +564,11 @@ def _executer_outils(blocs):
 
         if outil is None:
             resultat = f"Outil inconnu : {nom}"
+        elif registre.arguments_manquants(outil, arguments):
+            # Parametre obligatoire absent : inutile de demander une confirmation vocale.
+            resultat = ("Il manque le parametre obligatoire : "
+                        + ", ".join(registre.arguments_manquants(outil, arguments))
+                        + ". Redemande-le a l'utilisateur ou reformule l'appel.")
         elif outil.confirmation and not registre.est_autorise(nom):
             # N2 memorise "toujours autoriser" -> on n'attend pas (est_autorise True).
             # Un N3 n'est jamais autorise d'avance : il repasse toujours par ici.

@@ -14,68 +14,52 @@ import json
 import logging
 import os
 import re
+import shutil
 import subprocess
 import time
 import unicodedata
 
 from core.config import reglage
 from core.registre import outil
+from core.resultat import ResultatOutil, est_echec
 from ctypes import wintypes
 
 # ============================================================
 # CONFIGURATION DES API WINDOWS
 # ============================================================
 
-user32 = ctypes.windll.user32
-kernel32 = ctypes.windll.kernel32
+_WINDLL = getattr(ctypes, "windll", None)      # absent hors Windows (tests, CI)
+EST_WINDOWS = _WINDLL is not None
+user32 = _WINDLL.user32 if EST_WINDOWS else None
+kernel32 = _WINDLL.kernel32 if EST_WINDOWS else None
 
-# Récupération de la fenêtre active
-user32.GetForegroundWindow.restype = wintypes.HWND
 
-# Vérification de l'existence d'une fenêtre
-user32.IsWindow.argtypes = [wintypes.HWND]
-user32.IsWindow.restype = wintypes.BOOL
+def _exiger_windows():
+    """Leve une erreur claire (au lieu d'un AttributeError obscur) hors Windows."""
+    if not EST_WINDOWS:
+        raise OSError("Le controle du PC ne fonctionne que sous Windows.")
 
-# Vérification de la visibilité
-user32.IsWindowVisible.argtypes = [wintypes.HWND]
-user32.IsWindowVisible.restype = wintypes.BOOL
 
-# Récupération du titre
-user32.GetWindowTextLengthW.argtypes = [wintypes.HWND]
-user32.GetWindowTextLengthW.restype = ctypes.c_int
-
-user32.GetWindowTextW.argtypes = [
-    wintypes.HWND,
-    wintypes.LPWSTR,
-    ctypes.c_int
-]
-user32.GetWindowTextW.restype = ctypes.c_int
-
-# Récupération du processus associé
-user32.GetWindowThreadProcessId.argtypes = [
-    wintypes.HWND,
-    ctypes.POINTER(wintypes.DWORD)
-]
-user32.GetWindowThreadProcessId.restype = wintypes.DWORD
-
-# Gestion des processus
-kernel32.OpenProcess.argtypes = [
-    wintypes.DWORD,
-    wintypes.BOOL,
-    wintypes.DWORD
-]
-kernel32.OpenProcess.restype = wintypes.HANDLE
-
-kernel32.QueryFullProcessImageNameW.argtypes = [
-    wintypes.HANDLE,
-    wintypes.DWORD,
-    wintypes.LPWSTR,
-    ctypes.POINTER(wintypes.DWORD)
-]
-kernel32.QueryFullProcessImageNameW.restype = wintypes.BOOL
-
-kernel32.CloseHandle.argtypes = [wintypes.HANDLE]
-kernel32.CloseHandle.restype = wintypes.BOOL
+if EST_WINDOWS:
+    # Signatures explicites : sans elles, ctypes tronque les HWND 64 bits.
+    user32.GetForegroundWindow.restype = wintypes.HWND
+    user32.IsWindow.argtypes = [wintypes.HWND]
+    user32.IsWindow.restype = wintypes.BOOL
+    user32.IsWindowVisible.argtypes = [wintypes.HWND]
+    user32.IsWindowVisible.restype = wintypes.BOOL
+    user32.GetWindowTextLengthW.argtypes = [wintypes.HWND]
+    user32.GetWindowTextLengthW.restype = ctypes.c_int
+    user32.GetWindowTextW.argtypes = [wintypes.HWND, wintypes.LPWSTR, ctypes.c_int]
+    user32.GetWindowTextW.restype = ctypes.c_int
+    user32.GetWindowThreadProcessId.argtypes = [wintypes.HWND, ctypes.POINTER(wintypes.DWORD)]
+    user32.GetWindowThreadProcessId.restype = wintypes.DWORD
+    kernel32.OpenProcess.argtypes = [wintypes.DWORD, wintypes.BOOL, wintypes.DWORD]
+    kernel32.OpenProcess.restype = wintypes.HANDLE
+    kernel32.QueryFullProcessImageNameW.argtypes = [
+        wintypes.HANDLE, wintypes.DWORD, wintypes.LPWSTR, ctypes.POINTER(wintypes.DWORD)]
+    kernel32.QueryFullProcessImageNameW.restype = wintypes.BOOL
+    kernel32.CloseHandle.argtypes = [wintypes.HANDLE]
+    kernel32.CloseHandle.restype = wintypes.BOOL
 
 
 LOG = logging.getLogger("jarvis.controle_pc")
@@ -90,7 +74,6 @@ _VK = {"ctrl": 0x11, "control": 0x11, "controle": 0x11, "shift": 0x10, "maj": 0x
 _RACCOURCIS_RECHERCHE = {"spotify": "ctrl+l", "discord": "ctrl+k", "whatsapp": "ctrl+f",
                          "chrome": "ctrl+l", "firefox": "ctrl+l", "edge": "ctrl+l"}
 _INTERDITES = {frozenset({0x11, 0x12, 0x2E})}          # Ctrl+Alt+Suppr
-_APPS = {"liste": None}
 
 
 def _sa(s):
@@ -125,8 +108,20 @@ def _appuyer(codes):
         u.keybd_event(c, 0, 2, 0)
 
 
+def _unites_utf16(ch):
+    """Unites UTF-16 d'un caractere (2 pour un emoji) : SendInput/UNICODE en attend une par frappe."""
+    brut = ch.encode("utf-16-le")
+    return [int.from_bytes(brut[i:i + 2], "little") for i in range(0, len(brut), 2)]
+
+
 def _ecrire(texte):
-    """Saisie Unicode (accents compris) via SendInput, caractere par caractere."""
+    """Saisie Unicode (accents, ponctuation, emoji) via SendInput, caractere par caractere.
+
+    Leve OSError si Windows refuse l'injection (SendInput renvoie 0 : fenetre
+    elevee au premier plan, UIPI...) : un echec ne doit JAMAIS passer pour une saisie reussie.
+    """
+    _exiger_windows()
+
     class KB(ctypes.Structure):
         _fields_ = [("wVk", ctypes.c_ushort), ("wScan", ctypes.c_ushort), ("dwFlags", ctypes.c_ulong),
                     ("time", ctypes.c_ulong), ("dwExtraInfo", ctypes.c_size_t)]
@@ -143,19 +138,36 @@ def _ecrire(texte):
 
     def envoyer(vk, scan, flags):
         i = IN(1, UN(ki=KB(vk, scan, flags, 0, 0)))
-        ctypes.windll.user32.SendInput(1, ctypes.byref(i), ctypes.sizeof(IN))
+        envoyes = ctypes.windll.user32.SendInput(1, ctypes.byref(i), ctypes.sizeof(IN))
+        if envoyes != 1:
+            raise OSError("Windows a refuse la saisie (une fenetre administrateur est peut-etre au premier plan)")
 
+    texte = str(texte).replace("\r\n", "\n").replace("\r", "\n")
     for ch in texte:
         if ch == "\n":
             _appuyer([0x0D])
+        elif ch == "\t":
+            _appuyer([0x09])
         else:
-            envoyer(0, ord(ch), 0x0004)
-            envoyer(0, ord(ch), 0x0004 | 0x0002)
+            for unite in _unites_utf16(ch):
+                envoyer(0, unite, 0x0004)                       # KEYEVENTF_UNICODE
+                envoyer(0, unite, 0x0004 | 0x0002)              # ... | KEYEVENTF_KEYUP
         time.sleep(0.004)
 
 
+def _est_masquee(hwnd):
+    """Fenetre « cloaked » (UWP suspendue, autre bureau virtuel) : visible pour Win32 mais pas a l'ecran."""
+    try:
+        v = ctypes.c_int(0)
+        ctypes.windll.dwmapi.DwmGetWindowAttribute(hwnd, 14, ctypes.byref(v), ctypes.sizeof(v))
+        return bool(v.value)
+    except Exception:
+        return False
+
+
 def _fenetres():
-    """[(hwnd, titre, exe)] des fenetres visibles avec un titre."""
+    """[(hwnd, titre, exe)] des fenetres visibles avec un titre (z-order : la plus haute d'abord)."""
+    _exiger_windows()
     u, k = ctypes.windll.user32, ctypes.windll.kernel32
     res = []
 
@@ -165,6 +177,8 @@ def _fenetres():
             return True
         n = u.GetWindowTextLengthW(hwnd)
         if n <= 0:
+            return True
+        if _est_masquee(hwnd):
             return True
         buf = ctypes.create_unicode_buffer(n + 1)
         u.GetWindowTextW(hwnd, buf, n + 1)
@@ -198,198 +212,331 @@ def choisir_fenetre(fenetres, requete):
     return None
 
 
-def _activer(requete):
+# Resultat de la DERNIERE activation de fenetre : True (premier plan constate),
+# False (fenetre trouvee mais focus refuse), None (inconnu / pas de tentative).
+_ETAT = {"focus": None}
+
+_TERMINAUX = frozenset({"conemu64.exe", "cmd.exe", "powershell.exe", "pwsh.exe",
+                        "windowsterminal.exe", "wt.exe", "conhost.exe"})
+
+_ALIAS_EXE = {
+    "bloc-notes": "notepad.exe", "bloc notes": "notepad.exe", "blocnotes": "notepad.exe",
+    "notepad": "notepad.exe", "chrome": "chrome.exe", "google chrome": "chrome.exe",
+    "visual studio code": "code.exe", "vscode": "code.exe", "vs code": "code.exe", "code": "code.exe",
+    "explorateur": "explorer.exe", "explorateur de fichiers": "explorer.exe",
+    "terminal": "conemu64.exe", "cmd": "cmd.exe",
+    "word": "winword.exe", "excel": "excel.exe", "powerpoint": "powerpnt.exe",
+    "firefox": "firefox.exe", "edge": "msedge.exe", "microsoft edge": "msedge.exe",
+    "paint": "mspaint.exe", "spotify": "spotify.exe", "discord": "discord.exe",
+}
+
+
+def _norm_fenetre(texte):
+    """Minuscules, sans accents, tirets/underscores = espaces (« Bloc-notes » == « bloc notes »)."""
+    t = unicodedata.normalize("NFKD", str(texte or ""))
+    t = "".join(c for c in t if not unicodedata.combining(c))
+    t = t.replace("\xa0", " ").casefold()
+    t = re.sub(r"[\s\-‐-―_]+", " ", t)
+    return t.strip()
+
+
+def _trouver_fenetre(requete, fenetres=None):
+    """Fenetre correspondant a `requete`, SANS l'activer (fonction pure : testable hors Windows).
+
+    Priorites : 1. executable (exact ou alias connu) ; 2. titre exact ; 3. titre contenant la
+    requete (terminaux exclus sauf demande explicite). La premiere est la plus haute dans le z-order.
     """
-    Recherche une fenêtre Windows en privilégiant son exécutable.
-
-    Priorités :
-    1. Exécutable correspondant exactement
-    2. Alias connu d'une application
-    3. Titre correspondant exactement
-    4. Titre contenant la recherche
-
-    Les fenêtres de terminal sont exclues des recherches
-    approximatives, sauf si elles sont explicitement demandées.
-    """
-
-    import unicodedata
-
-    def normaliser(texte):
-        texte = unicodedata.normalize("NFKD", str(texte))
-        texte = "".join(
-            c for c in texte
-            if not unicodedata.combining(c)
-        )
-        return texte.replace("\xa0", " ").casefold().strip()
-
-    requete_norm = normaliser(requete)
-
+    requete_norm = _norm_fenetre(requete)
     if not requete_norm:
         return None
+    fenetres = _fenetres() if fenetres is None else fenetres
+    if requete_norm in {"terminal", "console", "invite de commandes", "powershell", "cmd"}:
+        # Demande explicite d'un terminal : n'importe lequel (Windows Terminal, conhost, PowerShell...).
+        return next((f for f in fenetres if str(f[2]).lower() in _TERMINAUX), None)
+    cible_exe = _ALIAS_EXE.get(requete_norm) or _ALIAS_EXE.get(requete_norm.replace(" ", "-"))
 
-    alias = {
-        "bloc-notes": "notepad.exe",
-        "bloc notes": "notepad.exe",
-        "notepad": "notepad.exe",
-        "chrome": "chrome.exe",
-        "visual studio code": "code.exe",
-        "vscode": "code.exe",
-        "explorateur": "explorer.exe",
-        "terminal": "conemu64.exe",
-        "cmd": "cmd.exe",
-    }
-
-    executable_cible = alias.get(requete_norm)
-
-    fenetres = _fenetres()
-
-    # 1. Correspondance exacte avec l'exécutable
-    if executable_cible:
-        correspondances = [
-            f for f in fenetres
-            if normaliser(f[2]) == executable_cible
-        ]
+    if cible_exe:
+        trouvees = [f for f in fenetres if _norm_fenetre(f[2]) == _norm_fenetre(cible_exe)]
     else:
-        correspondances = [
-            f for f in fenetres
-            if normaliser(f[2]) == requete_norm
-            or normaliser(f[2]) == requete_norm + ".exe"
-        ]
+        trouvees = [f for f in fenetres
+                    if _norm_fenetre(f[2]) in (requete_norm, requete_norm + ".exe")]
+    if not trouvees:
+        trouvees = [f for f in fenetres if _norm_fenetre(f[1]) == requete_norm]
+    if not trouvees:
+        explicite = requete_norm in {"terminal", "cmd", "powershell"}
+        trouvees = [f for f in fenetres
+                    if requete_norm in _norm_fenetre(f[1])
+                    and (explicite or str(f[2]).lower() not in _TERMINAUX)]
+    return trouvees[0] if trouvees else None
 
-    # 2. Correspondance exacte avec le titre
-    if not correspondances:
-        correspondances = [
-            f for f in fenetres
-            if normaliser(f[1]) == requete_norm
-        ]
 
-    # 3. Recherche approximative dans les titres
-    if not correspondances:
-        terminaux = {
-            "conemu64.exe",
-            "cmd.exe",
-            "powershell.exe",
-            "windowsterminal.exe",
-        }
+def _premier_plan_est(hwnd):
+    """Vrai si `hwnd` (ou sa fenetre racine) est reellement la fenetre au premier plan."""
+    try:
+        actif = ctypes.windll.user32.GetForegroundWindow()
+    except Exception:
+        return False
+    if not actif:
+        return False
+    if int(actif) == int(hwnd):
+        return True
+    try:
+        racine = ctypes.windll.user32.GetAncestor
+        return int(racine(actif, 2)) == int(racine(hwnd, 2))       # GA_ROOT
+    except Exception:
+        return False
 
-        correspondances = [
-            f for f in fenetres
-            if requete_norm in normaliser(f[1])
-            and (
-                normaliser(f[2]) not in terminaux
-                or requete_norm in {
-                    "terminal", "cmd", "powershell"
-                }
-            )
-        ]
 
-    if not correspondances:
-        LOG.warning(
-            "Aucune fenêtre correspondant à : %s",
-            requete
-        )
+def _mettre_au_premier_plan(hwnd, essais=3):
+    """Met `hwnd` au premier plan ET verifie que Windows l'a accepte.
+
+    SetForegroundWindow seul est souvent refuse (verrou de premier plan) : on restaure si
+    minimisee, on rattache temporairement notre thread a celui de la fenetre active, puis on
+    reverifie avec GetForegroundWindow. Pas de simulation de la touche Alt (elle active la barre
+    de menus de l'application et avalerait la premiere frappe).
+    """
+    _exiger_windows()
+    u, k = ctypes.windll.user32, ctypes.windll.kernel32
+    for essai in range(max(1, essais)):
+        if u.IsIconic(hwnd):
+            u.ShowWindow(hwnd, 9)                                   # SW_RESTORE
+        actif = u.GetForegroundWindow()
+        tid_courant = k.GetCurrentThreadId()
+        tid_actif = u.GetWindowThreadProcessId(actif, None) if actif else 0
+        attache = False
+        if tid_actif and tid_actif != tid_courant:
+            attache = bool(u.AttachThreadInput(tid_courant, tid_actif, True))
+        try:
+            u.BringWindowToTop(hwnd)
+            u.SetForegroundWindow(hwnd)
+        finally:
+            if attache:
+                u.AttachThreadInput(tid_courant, tid_actif, False)
+        time.sleep(0.15 * (essai + 1))
+        if _premier_plan_est(hwnd):
+            return True
+        try:
+            u.SwitchToThisWindow(hwnd, True)                        # dernier recours (non documente)
+        except Exception:
+            pass
+    return _premier_plan_est(hwnd)
+
+
+def _activer(requete):
+    """Trouve puis active une fenetre. Renvoie (hwnd, titre, exe) ou None si introuvable.
+
+    Le resultat du focus est consigne dans _ETAT["focus"] (True / False) : une fenetre trouvee
+    mais non activee n'est plus presentee comme un succes (lire _ETAT["focus"] apres l'appel).
+    """
+    _ETAT["focus"] = None
+    f = _trouver_fenetre(requete)
+    if not f:
+        LOG.warning("Aucune fenetre correspondant a : %s", requete)
         return None
-
-    f = correspondances[0]
-    hwnd = f[0]
-
-    u = ctypes.windll.user32
-
-    if u.IsIconic(hwnd):
-        u.ShowWindow(hwnd, 9)
-
-    u.SetForegroundWindow(hwnd)
-
-    time.sleep(0.3)
-
-    actif = user32.GetForegroundWindow()
-
-    if actif != hwnd:
-        LOG.warning(
-            "Fenêtre trouvée mais activation non confirmée : "
-            "%s (%s), HWND=%s, actif=%s",
-            f[1],
-            f[2],
-            hwnd,
-            actif
-        )
-
+    ok = _mettre_au_premier_plan(f[0])
+    _ETAT["focus"] = ok
+    if not ok:
+        LOG.warning("Fenetre trouvee mais activation NON confirmee : %s (%s), HWND=%s",
+                    f[1], f[2], f[0])
     return f
 
 
-def _apps_demarrer():
-    if _APPS["liste"] is None:
-        try:
-            r = subprocess.run(["powershell", "-NoProfile", "-Command",
-                                "Get-StartApps | ConvertTo-Json -Compress"], capture_output=True,
-                               timeout=20, creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
-            brut = json.loads(r.stdout.decode("utf-8", "replace") or "[]")
-            _APPS["liste"] = brut if isinstance(brut, list) else [brut]
-        except Exception:
-            _APPS["liste"] = []
-    return _APPS["liste"]
+_APPS = {"liste": None, "echec": 0.0}
+
+
+def _apps_demarrer(forcer=False):
+    """Applications du menu Demarrer (Get-StartApps, Store compris).
+
+    Une liste vide ou une erreur n'est JAMAIS memorisee durablement (avant : `[]` cache a vie,
+    donc « menu Demarrer vide » jusqu'au redemarrage). Echec = nouvel essai apres 60 s.
+    """
+    if _APPS["liste"] and not forcer:
+        return _APPS["liste"]
+    if not forcer and time.time() - _APPS["echec"] < 60:
+        return []
+    script = ("[Console]::OutputEncoding = [System.Text.Encoding]::UTF8; "
+              "Get-StartApps | Select-Object Name,AppID | ConvertTo-Json -Compress")
+    try:
+        r = subprocess.run(["powershell", "-NoProfile", "-NonInteractive", "-Command", script],
+                           capture_output=True, timeout=25,
+                           creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
+        brut = json.loads(r.stdout.decode("utf-8-sig", "replace").strip() or "[]")
+        liste = brut if isinstance(brut, list) else [brut]
+        liste = [a for a in liste if isinstance(a, dict) and a.get("Name") and a.get("AppID")]
+    except Exception as exc:
+        LOG.warning("Get-StartApps indisponible : %s", exc)
+        liste = []
+    if liste:
+        _APPS["liste"] = liste
+    else:
+        _APPS["echec"] = time.time()
+        LOG.warning("Get-StartApps n'a renvoye aucune application (secours : executables connus / App Paths)")
+    return liste
+
+
+def _cle_app(texte):
+    return _norm_fenetre(texte)
 
 
 def choisir_app(apps, nom):
-    q = _sa(nom).strip()
-    exact = [a for a in apps if _sa(a.get("Name")) == q]
-    partiel = [a for a in apps if q and q in _sa(a.get("Name"))]
+    q = _cle_app(nom)
+    exact = [a for a in apps if _cle_app(a.get("Name")) == q]
+    partiel = [a for a in apps if q and q in _cle_app(a.get("Name"))]
     return (exact or sorted(partiel, key=lambda a: len(a.get("Name", ""))) or [None])[0]
 
 
-def _lancer(nom):
-    """Lance une appli (menu Demarrer, Store compris). Renvoie son nom ou None."""
-    app = choisir_app(_apps_demarrer(), nom)
-    if not app:
+# Liste FERMEE d'utilitaires Windows integres, lancables sans menu Demarrer ni PowerShell.
+_EXECUTABLES_INTEGRES = {
+    "bloc notes": "notepad.exe", "notepad": "notepad.exe",
+    "calculatrice": "calc.exe", "calculette": "calc.exe",
+    "explorateur": "explorer.exe", "explorateur de fichiers": "explorer.exe",
+    "paint": "mspaint.exe",
+}
+
+
+def _chemin_app_paths(nom_exe):
+    """Chemin d'un .exe enregistre dans le registre Windows (App Paths), ou None."""
+    if not re.fullmatch(r"[a-z0-9_.\-]{1,60}\.exe", nom_exe or ""):
         return None
-    subprocess.Popen(["explorer.exe", f"shell:AppsFolder\\{app['AppID']}"])
-    return app["Name"]
+    try:
+        import winreg
+    except ImportError:
+        return None
+    for racine in (winreg.HKEY_CURRENT_USER, winreg.HKEY_LOCAL_MACHINE):
+        try:
+            with winreg.OpenKey(racine, rf"Software\Microsoft\Windows\CurrentVersion\App Paths\{nom_exe}") as cle:
+                chemin = winreg.QueryValueEx(cle, None)[0]
+            chemin = os.path.expandvars(str(chemin).strip('"'))
+            if os.path.isfile(chemin):
+                return chemin
+        except OSError:
+            continue
+    return None
+
+
+def _lancer_connu(nom):
+    """Secours quand Get-StartApps ne trouve rien : utilitaires integres, App Paths, PATH.
+
+    Le nom vient du LLM : il ne sert JAMAIS a construire une ligne de commande. Seuls sont lances
+    un executable de la liste fermee ou un .exe que Windows a lui-meme enregistre (App Paths).
+    """
+    q = _cle_app(nom)
+    exe = _EXECUTABLES_INTEGRES.get(q)
+    if exe:
+        subprocess.Popen([exe])
+        return nom
+    candidat = _ALIAS_EXE.get(q) or (re.sub(r"[^a-z0-9]+", "", q) + ".exe" if q else "")
+    chemin = _chemin_app_paths(candidat) or (shutil.which(candidat) if candidat else None)
+    if chemin:
+        subprocess.Popen([chemin])
+        return nom
+    return None
+
+
+def _lancer(nom):
+    """Lance une appli (utilitaire integre, menu Demarrer Store compris, App Paths). Renvoie son nom ou None."""
+    q = _cle_app(nom)
+    if q in _EXECUTABLES_INTEGRES:                      # pas besoin de PowerShell pour le Bloc-notes
+        return _lancer_connu(nom)
+    app = choisir_app(_apps_demarrer(), nom)
+    if app:
+        subprocess.Popen(["explorer.exe", f"shell:AppsFolder\\{app['AppID']}"])
+        return app["Name"]
+    return _lancer_connu(nom)
 
 
 def _attendre_fenetre(nom, delai=12.0):
+    """Attend l'apparition (ET l'activation) de la fenetre de `nom`. Renvoie la fenetre ou None."""
     fin = time.time() + delai
-    while time.time() < fin:
-        if _activer(nom):
-            return True
+    while True:
+        f = _activer(nom)
+        if f:
+            return f
+        if time.time() >= fin:
+            return None
         time.sleep(0.5)
-    return False
+
+
+def _resultat_fenetre(nom, f, deja_ouverte):
+    focus = _ETAT["focus"]
+    details = {"hwnd": int(f[0]), "titre": f[1], "executable": f[2], "focus": focus}
+    if focus is False:
+        return ResultatOutil(
+            f"{nom} est ouvert, mais je n'arrive pas à le mettre au premier plan.",
+            succes=False, verifie=True, details=details, erreur="focus")
+    return ResultatOutil(f"{nom} est au premier plan." if deja_ouverte else f"{nom} est ouvert.",
+                         succes=True, verifie=(focus is True), details=details)
+
+
+def verifier_ouverture(nom, delai=8.0, requete=None, strict=True):
+    """Apres un lancement « a l'aveugle » (os.startfile...), CONSTATE la fenetre. Jamais d'exception.
+
+    requete : nom de recherche de la fenetre si different de `nom` (ex. « notepad.exe »).
+    strict  : fenetre absente = echec (utilitaires Windows). Non strict = « lance, pas encore vu »
+              (jeux/launchers lents : on ne pretend ni le succes verifie ni l'echec).
+    """
+    try:
+        f = _attendre_fenetre(requete or nom, delai)
+    except Exception as exc:                                   # hors Windows, API indisponible
+        LOG.info("verification de la fenetre impossible : %s", exc)
+        return ResultatOutil(f"{nom} lancé (je ne peux pas vérifier la fenêtre).", succes=True, verifie=False)
+    if not f:
+        return ResultatOutil(f"J'ai lancé {nom}, mais je ne vois pas sa fenêtre apparaître.",
+                             succes=not strict, verifie=strict, erreur="fenetre_absente")
+    return _resultat_fenetre(nom, f, deja_ouverte=False)
 
 
 # ------------------------------------------------------------------ outils
 @outil(
     nom="lancer_application_pc",
-    description="Lance N'IMPORTE QUELLE application installee (Spotify, Discord, VS Code, Word, "
-                "Steam...) par son nom, puis la met au premier plan. Pour « ouvre Spotify », "
-                "« lance Discord ». Pour un SITE web, utilise browser_open.",
+    description="Lance N'IMPORTE QUELLE application installee (Bloc-notes, Spotify, Discord, VS Code, Word, "
+                "Steam...) par son nom, puis la met au premier plan ET verifie que sa fenetre est bien "
+                "la. Pour « ouvre Spotify », « ouvre le Bloc-notes ». Si elle est deja ouverte, elle est "
+                "simplement activee. Pour un SITE web, utilise browser_open.",
     parametres={"type": "object", "properties": {"nom": {"type": "string"}}, "required": ["nom"]},
     mcp_expose=False,
 )
 def lancer_application_pc(nom: str) -> str:
-    if _activer(nom):
-        return f"{nom} est au premier plan."
+    f = _activer(nom)
+    if f:
+        return _resultat_fenetre(nom, f, deja_ouverte=True)
     lance = _lancer(nom)
     if not lance:
-        return f"Je ne trouve pas d'application « {nom} » sur ce PC."
-    _attendre_fenetre(nom)
-    return f"{lance} est ouvert."
+        return ResultatOutil(f"Je ne trouve pas d'application « {nom} » sur ce PC.",
+                             succes=False, erreur="introuvable")
+    f = _attendre_fenetre(nom)
+    if not f and _cle_app(lance) != _cle_app(nom):
+        f = _attendre_fenetre(lance, 4.0)
+    if not f:
+        return ResultatOutil(f"J'ai lancé {lance}, mais je ne vois pas sa fenêtre apparaître.",
+                             succes=False, verifie=True, erreur="fenetre_absente", details={"lance": lance})
+    return _resultat_fenetre(lance, f, deja_ouverte=False)
 
 
 @outil(
     nom="activer_fenetre",
-    description="Met au premier plan une fenetre deja ouverte (par son titre ou son programme) : "
-                "« passe sur Spotify », « va sur la fenetre Chrome ».",
+    description="Met au premier plan une fenetre deja ouverte (par son titre ou son programme) et verifie "
+                "qu'elle y est : « passe sur Spotify », « va sur la fenetre Chrome », « passe sur VS Code ».",
     parametres={"type": "object", "properties": {"titre": {"type": "string"}}, "required": ["titre"]},
     mcp_expose=False,
 )
 def activer_fenetre(titre: str) -> str:
     f = _activer(titre)
-    return f"Fenêtre « {f[1][:60]} » au premier plan." if f else f"Je ne trouve pas de fenêtre « {titre} » ouverte."
+    if not f:
+        return ResultatOutil(f"Je ne trouve pas de fenêtre « {titre} » ouverte.", succes=False, erreur="introuvable")
+    r = _resultat_fenetre(f[1][:60], f, deja_ouverte=True)
+    if not r.succes:
+        return ResultatOutil(f"J'ai trouvé la fenêtre « {f[1][:60]} » mais je n'ai pas pu la mettre au premier plan.",
+                             succes=False, verifie=True, details=r.details, erreur="focus")
+    return ResultatOutil(f"Fenêtre « {f[1][:60]} » au premier plan.", succes=True,
+                         verifie=r.verifie, details=r.details)
 
 
 @outil(
     nom="appuyer_touches",
     description="Appuie sur une touche ou un raccourci clavier dans la fenetre active : « ctrl+l », "
-                "« enter », « ctrl+shift+t », « alt+tab », « win+d », « f5 », « echap », « tab ».",
+                "« enter », « ctrl+shift+t », « alt+tab », « win+d », « f5 », « echap », « tab », "
+                "« ctrl+s » (enregistrer).",
     parametres={"type": "object", "properties": {"combinaison": {"type": "string"}}, "required": ["combinaison"]},
     mcp_expose=False,
 )
@@ -397,27 +544,174 @@ def appuyer_touches(combinaison: str) -> str:
     try:
         codes = analyser_combinaison(combinaison)
     except ValueError as e:
-        return f"Je ne connais pas cette touche ({e})."
+        return ResultatOutil(f"Je ne connais pas cette touche ({e}).", succes=False, erreur="touche")
     if frozenset(codes) in _INTERDITES:
-        return "Je n'appuie pas sur Ctrl+Alt+Suppr."
-    _appuyer(codes)
-    return f"{combinaison} envoyé."
+        return ResultatOutil("Je n'appuie pas sur Ctrl+Alt+Suppr.", succes=False, erreur="interdit")
+    try:
+        _appuyer(codes)
+    except Exception as e:
+        return ResultatOutil(f"Je n'ai pas pu envoyer {combinaison} ({e}).", succes=False, erreur="saisie")
+    return ResultatOutil(f"{combinaison} envoyé.", succes=True, verifie=False)
+
+
+def _norm_texte(texte):
+    t = unicodedata.normalize("NFC", str(texte or "")).replace("\xa0", " ")
+    return " ".join(t.split())
+
+
+def _texte_retrouve(attendu, lu):
+    """Le texte tape est-il dans le contenu relu ? (espaces/retours a la ligne neutralises)."""
+    a, l = _norm_texte(attendu), _norm_texte(lu)
+    return bool(a) and a in l
+
+
+_SCRIPT_RELIRE = r"""
+$ErrorActionPreference = 'Stop'
+[Console]::OutputEncoding = [System.Text.Encoding]::UTF8
+Add-Type -AssemblyName UIAutomationClient
+Add-Type -AssemblyName UIAutomationTypes
+$w = [System.Windows.Automation.AutomationElement]::FromHandle([IntPtr][int64]$env:JARVIS_HWND)
+if ($null -eq $w) { throw 'fenetre introuvable' }
+$prop = [System.Windows.Automation.AutomationElement]::ControlTypeProperty
+$cond = New-Object System.Windows.Automation.OrCondition(
+  (New-Object System.Windows.Automation.PropertyCondition($prop, [System.Windows.Automation.ControlType]::Edit)),
+  (New-Object System.Windows.Automation.PropertyCondition($prop, [System.Windows.Automation.ControlType]::Document)))
+$els = $w.FindAll([System.Windows.Automation.TreeScope]::Descendants, $cond)
+$out = New-Object System.Collections.ArrayList
+foreach ($e in $els) {
+  try {
+    $p = $null
+    if ($e.TryGetCurrentPattern([System.Windows.Automation.TextPattern]::Pattern, [ref]$p)) {
+      [void]$out.Add($p.DocumentRange.GetText(20000))
+    } elseif ($e.TryGetCurrentPattern([System.Windows.Automation.ValuePattern]::Pattern, [ref]$p)) {
+      [void]$out.Add($p.Current.Value)
+    }
+  } catch { }
+}
+ConvertTo-Json -InputObject @{ texte = ($out -join "`n") } -Compress
+"""
+
+
+def _relire_wm_gettext(hwnd):
+    """Lecture RAPIDE (quelques ms) du texte des zones d'edition par WM_GETTEXT, sans PowerShell.
+    Renvoie le texte lu, ou None si aucune zone d'edition n'a repondu (le relai UIA prend alors le relais)."""
+    if not EST_WINDOWS or not hwnd:
+        return None
+    try:
+        from ctypes import wintypes
+        u = ctypes.WinDLL("user32", use_last_error=True)      # instance privee : n'altere pas user32 global
+        envoyer = u.SendMessageTimeoutW
+        envoyer.argtypes = [wintypes.HWND, wintypes.UINT, wintypes.WPARAM, ctypes.c_void_p,
+                            wintypes.UINT, wintypes.UINT, ctypes.POINTER(ctypes.c_size_t)]
+        envoyer.restype = ctypes.c_size_t
+        recus, nom_classe = [], ctypes.create_unicode_buffer(128)
+        proc_t = ctypes.WINFUNCTYPE(wintypes.BOOL, wintypes.HWND, wintypes.LPARAM)
+
+        def lire(h):
+            n = ctypes.c_size_t(0)
+            if not envoyer(h, 0x000E, 0, None, 2, 1500, ctypes.byref(n)) or not (0 < n.value < 500000):
+                return
+            tampon = ctypes.create_unicode_buffer(int(n.value) + 1)
+            r = ctypes.c_size_t(0)
+            if envoyer(h, 0x000D, int(n.value) + 1, ctypes.cast(tampon, ctypes.c_void_p), 2, 1500, ctypes.byref(r)):
+                recus.append(tampon.value)
+
+        def rappel(h, _):
+            u.GetClassNameW(h, nom_classe, 128)
+            if "edit" in nom_classe.value.lower() or "scintilla" in nom_classe.value.lower():
+                lire(h)
+            return True
+
+        rappel_c = proc_t(rappel)
+        u.EnumChildWindows(hwnd, rappel_c, 0)
+        return "\n".join(recus) if recus else None
+    except Exception as exc:
+        LOG.info("relecture WM_GETTEXT indisponible : %s", exc)
+        return None
+
+
+def _relire_texte(hwnd):
+    """Texte actuellement affiche dans les zones d'edition de la fenetre, ou None.
+    Essaie d'abord WM_GETTEXT (rapide), puis UI Automation via PowerShell (lent : jusqu'a 25 s)."""
+    if not hwnd:
+        return None
+    rapide = _relire_wm_gettext(hwnd)
+    if rapide:
+        return rapide
+    try:
+        r = subprocess.run(["powershell", "-NoProfile", "-NonInteractive", "-Command", _SCRIPT_RELIRE],
+                           capture_output=True, timeout=25,
+                           env={**os.environ, "JARVIS_HWND": str(int(hwnd))},
+                           creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
+        if r.returncode != 0:
+            LOG.info("relecture UIA impossible : %s", r.stderr.decode("utf-8", "replace")[:300])
+            return None
+        donnees = json.loads(r.stdout.decode("utf-8-sig", "replace").strip() or "{}")
+        return str(donnees.get("texte", ""))
+    except Exception as exc:
+        LOG.info("relecture UIA indisponible : %s", exc)
+        return None
 
 
 @outil(
     nom="taper_texte",
-    description="Tape du texte au clavier dans le champ actif (accents compris). Pour « ecris ... », "
-                "« tape ... ». Jamais de mot de passe, de code bancaire ni de paiement. Mets "
-                "entree=true pour valider avec Entree.",
-    parametres={"type": "object", "properties": {"texte": {"type": "string"}, "entree": {"type": "boolean"}},
-                "required": ["texte"]},
+    description="TAPE du texte au clavier dans la fenetre/le champ actif d'une application Windows "
+                "(Bloc-notes, Word, un champ de recherche...), accents et ponctuation compris. C'est le SEUL "
+                "outil pour « ecris ... dans le Bloc-notes », « tape ... ». Ce n'est PAS noter (qui range une "
+                "idee dans les notes internes de Jarvis). Indique fenetre (ex. « bloc-notes ») pour que le "
+                "texte aille bien dans cette application : elle est activee et le focus verifie avant de "
+                "taper, puis le texte est relu quand c'est possible. Jamais de mot de passe, de code "
+                "bancaire ni de paiement. entree=true valide avec Entree.",
+    parametres={"type": "object", "properties": {
+        "texte": {"type": "string", "description": "Texte EXACT a taper, sans le reformuler."},
+        "entree": {"type": "boolean"},
+        "fenetre": {"type": "string", "description": "Application/fenetre cible (optionnel)."}},
+        "required": ["texte"]},
     mcp_expose=False,
 )
-def taper_texte(texte: str, entree: bool = False) -> str:
-    _ecrire(str(texte))
-    if entree:
-        _appuyer([0x0D])
-    return "C'est tapé."
+def taper_texte(texte: str, entree: bool = False, fenetre: str = "") -> str:
+    texte = str(texte if texte is not None else "")
+    if not texte.strip():
+        return ResultatOutil("Je n'ai rien à taper.", succes=False, erreur="vide")
+    cible = None
+    if fenetre:
+        cible = _activer(fenetre)
+        if not cible:
+            return ResultatOutil(f"Je ne trouve pas la fenêtre « {fenetre} » : je ne tape rien.",
+                                 succes=False, erreur="introuvable")
+        if _ETAT["focus"] is False:
+            return ResultatOutil(f"Je n'ai pas pu mettre « {fenetre} » au premier plan : je ne tape rien.",
+                                 succes=False, verifie=True, erreur="focus")
+    else:
+        try:
+            cible = _fenetre_cible("")
+        except Exception:
+            cible = None
+    if cible and str(cible[2]).lower() in _TERMINAUX and not reglage("controle_pc.autoriser_terminal", False):
+        return ResultatOutil("La fenêtre active est un terminal : je ne tape pas de texte à cet endroit.",
+                             succes=False, erreur="terminal")
+    try:
+        _ecrire(texte)
+        if entree:
+            _appuyer([0x0D])
+    except OSError as exc:
+        return ResultatOutil(f"Je n'ai pas pu taper le texte ({exc}).", succes=False, erreur="saisie")
+    details = {"caracteres": len(texte), "fenetre": cible[1] if cible else "", "hwnd": int(cible[0]) if cible else 0}
+    lu = None
+    if cible and not entree:
+        for _ in range(3):
+            time.sleep(0.25 + 0.002 * len(texte))
+            lu = _relire_texte(cible[0])
+            if lu is None or _texte_retrouve(texte, lu):
+                break
+    if lu is None:
+        return ResultatOutil("C'est tapé, mais je n'ai pas pu vérifier le résultat à l'écran.",
+                             succes=True, verifie=False, details=details)
+    if _texte_retrouve(texte, lu):
+        return ResultatOutil("C'est tapé et je l'ai vérifié à l'écran.", succes=True, verifie=True, details=details)
+    LOG.warning("taper_texte : texte attendu %r, relu %r", texte[:120], str(lu)[:200])
+    return ResultatOutil("J'ai envoyé le texte, mais je ne le retrouve pas dans la fenêtre.",
+                         succes=False, verifie=True, details=details, erreur="verification")
 
 
 def _controles(hwnd):
@@ -443,6 +737,11 @@ def _controles(hwnd):
 $ErrorActionPreference = 'Stop'
 
 try {
+    # Sans cela, BoundingRectangle est « virtualise » (mis a l'echelle DPI) pour un processus
+    # non DPI-aware : les clics par nom tombent a cote sur un ecran a 125 % / 150 %.
+    Add-Type -Namespace Jarvis -Name Dpi -MemberDefinition '[DllImport("user32.dll")] public static extern bool SetProcessDPIAware();'
+    [void][Jarvis.Dpi]::SetProcessDPIAware()
+
     Add-Type -AssemblyName UIAutomationClient
     Add-Type -AssemblyName UIAutomationTypes
 
@@ -805,13 +1104,27 @@ def cliquer_bouton(nom: str, fenetre: str = "", double: bool = False) -> str:
     if _est_sensible(nom):
         return _MSG_SENSIBLE
     from tools.souris import _BOUTONS, _placer_curseur, _user32
-    _placer_curseur(c[2], c[3])
+    details = {"controle": c[1][:50], "x": c[2], "y": c[3], "fenetre": f[1][:60]}
+    if not _placer_curseur(c[2], c[3]):
+        return ResultatOutil(f"Je n'ai pas pu déplacer la souris sur « {c[1][:50]} ».",
+                             succes=False, details=details, erreur="curseur")
+    try:
+        px, py = _position()
+    except Exception:
+        px = py = None
+    if px is not None and (abs(px - c[2]) > 3 or abs(py - c[3]) > 3):
+        # Preuve avant le clic : le curseur n'est pas la ou on l'a demande (DPI, ecran, fenetre admin).
+        return ResultatOutil(f"Le curseur n'est pas arrivé sur « {c[1][:50]} » : je ne clique pas.",
+                             succes=False, verifie=True, details={**details, "curseur": [px, py]},
+                             erreur="curseur")
     down, up = _BOUTONS["gauche"]
     for _ in range(2 if double else 1):
         _user32.mouse_event(down, 0, 0, 0, 0)
         _user32.mouse_event(up, 0, 0, 0, 0)
         time.sleep(0.08)
-    return f"J'ai cliqué sur {c[1][:50]}."
+    # Le clic est envoye et la position du curseur constatee ; l'EFFET du clic n'est pas verifie.
+    return ResultatOutil(f"J'ai cliqué sur {c[1][:50]}.", succes=True, verifie=False,
+                         details={**details, "curseur_verifie": px is not None})
 
 
 @outil(
@@ -856,17 +1169,23 @@ def rechercher_dans_application(application: str, requete: str) -> str:
                 return browser_open(url=site, recherche=str(requete))
             return f"Je ne trouve pas l'application « {application} »."
         if not _attendre_fenetre(application, 15.0):
-            return f"{application} ne s'ouvre pas."
+            return ResultatOutil(f"{application} ne s'ouvre pas.", succes=False, erreur="fenetre_absente")
         time.sleep(1.5)                                     # laisse l'interface se construire
+    elif _ETAT["focus"] is False:
+        return ResultatOutil(f"Je n'arrive pas à mettre {application} au premier plan : je ne lance pas la recherche.",
+                             succes=False, verifie=True, erreur="focus")
     raccourcis = {**_RACCOURCIS_RECHERCHE, **(reglage("controle_pc.recherche_raccourcis", {}) or {})}
     combo = next((v for k, v in raccourcis.items() if k in _sa(application)), "ctrl+f")
-    _appuyer(analyser_combinaison(combo))
-    time.sleep(0.35)
-    _appuyer(analyser_combinaison("ctrl+a"))
-    _ecrire(str(requete))
-    time.sleep(0.2)
-    _appuyer([0x0D])
-    return f"J'ai lancé la recherche « {requete} » dans {application}."
+    try:
+        _appuyer(analyser_combinaison(combo))
+        time.sleep(0.35)
+        _appuyer(analyser_combinaison("ctrl+a"))
+        _ecrire(str(requete))
+        time.sleep(0.2)
+        _appuyer([0x0D])
+    except OSError as exc:
+        return ResultatOutil(f"Je n'ai pas pu saisir la recherche ({exc}).", succes=False, erreur="saisie")
+    return ResultatOutil(f"J'ai lancé la recherche « {requete} » dans {application}.", succes=True, verifie=False)
 
 
 # ============================================================ vision, souris, navigateur
@@ -1040,12 +1359,33 @@ _RACCOURCIS_PHRASES = {
     "annule la derniere action": "ctrl+z", "defais": "ctrl+z", "refais": "ctrl+y",
     "fais une capture d ecran": "win+shift+s", "prends une capture d ecran": "win+shift+s",
     "verrouille l ordinateur": "win+l", "verrouille le pc": "win+l", "verrouille la session": "win+l",
+    "enregistre le": "ctrl+s", "enregistre la": "ctrl+s", "sauvegarde le": "ctrl+s",
+    "sauvegarde la": "ctrl+s", "enregistre ca": "ctrl+s", "enregistre le document": "ctrl+s",
     "tout en haut": "ctrl+home", "en haut de la page": "ctrl+home", "tout en bas": "ctrl+end",
     "en bas de la page": "ctrl+end",
 }
 _SITES_RECHERCHE_WEB = {"google", "internet", "le web", "web", "le net", "net", "google chrome"}
 _DEICTIQUES = {"ca", "ce", "cela", "ici", "la", "celui ci", "celui la", "ce bouton", "ce lien", "dessus"}
 _SANS_TEXTE = ("un ", "une ", "moi", "mon ", "ma ", "a ", "au ", "sur ", "dans ", "pour ", "le ", "la ", "les ")
+
+
+_VERBES_DICTEE = r"(?:tape|taper|[ée]cris|[ée]crire|saisis|saisir)"
+_POLITESSE_FIN = re.compile(r"[\s,]+(?:s['’ ]il (?:te|vous) pla[iî]t|stp|merci)\s*[.!?]*\s*$", re.I)
+
+
+def _texte_dicte(phrase):
+    """Texte a taper, extrait de la phrase BRUTE : ponctuation, accents et casse conserves.
+
+    (Avant, le texte etait reconstruit a partir de mots nus : « Bonjour, je suis Jarvis. »
+    devenait « Bonjour je suis Jarvis » — virgules et point perdus.)
+    """
+    m = re.search(rf"\b{_VERBES_DICTEE}\b\s*[:\-–—]?\s*(.*)$", str(phrase or ""), re.I | re.S)
+    if not m:
+        return ""
+    texte = _POLITESSE_FIN.sub("", m.group(1)).strip()
+    if len(texte) >= 2 and (texte[0], texte[-1]) in {("«", "»"), ('"', '"'), ("“", "”"), ("'", "'")}:
+        texte = texte[1:-1].strip()
+    return texte.lstrip(":").strip()
 
 
 def _tokens(phrase):
@@ -1129,7 +1469,8 @@ def _route_simple(phrase):
 
     m = re.match(r"(?:tape|taper|ecris|ecrire|saisis|saisir)\b\s*(.*)", p)
     if m and m.group(1).strip() and not m.group(1).startswith(_SANS_TEXTE):
-        return "taper_texte", {"texte": " ".join(_tranche(p, orig, m.start(1), len(p)))}
+        texte = _texte_dicte(phrase) or " ".join(_tranche(p, orig, m.start(1), len(p)))
+        return "taper_texte", {"texte": texte}
 
     m = re.fullmatch(r"(?:passe|bascule) (?:sur|a|vers) (?:la fenetre |l application |l appli |la |le |l )?(.+)", p)
     if m:
@@ -1149,8 +1490,43 @@ def _route_simple(phrase):
     return None
 
 
+_APPEL = re.compile(r"^\s*(?:(?:hey|ok|dis|salut)\s+)?jarvis\s*[,:;.!]*\s*", re.I)
+
+
+def _retirer_appel(phrase):
+    """Retire le nom d'appel en tete (« Jarvis, ... ») : sans cela la virgule qui le suit etait prise pour
+    un connecteur et « Jarvis » devenait une etape a part, ce qui faisait echouer toute la chaine."""
+    phrase = str(phrase or "")
+    return _APPEL.sub("", phrase, count=1) or phrase
+
+
+_DEBUT_DICTEE = re.compile(rf"\s*(?:jarvis\s*[,:]?\s*)?{_VERBES_DICTEE}\b", re.I)
+_VERBES_SUITE_DICTEE = re.compile(r"(?:enregistre|sauvegarde)\b", re.I)
+
+
 def _decouper(phrase):
-    return [s.strip(" .!?") for s in _CONNECTEURS.split(str(phrase or "")) if s and s.strip(" .!?")]
+    """Coupe une phrase en commandes, SEULEMENT devant un verbe d'action.
+
+    Apres un verbe de dictee (« ecris ... »), le reste est du TEXTE : on ne coupe plus que sur
+    « puis » / « ensuite » ou devant « enregistre / sauvegarde » (« ecris bonjour et enregistre »).
+    """
+    phrase = _retirer_appel(phrase)
+    segments, debut = [], 0
+    for m in _CONNECTEURS.finditer(phrase):
+        courant = phrase[debut:m.start()]
+        if _DEBUT_DICTEE.match(courant):
+            lien = m.group(0).lower()
+            suite = phrase[m.end():]
+            if not ("puis" in lien or "ensuite" in lien or _VERBES_SUITE_DICTEE.match(suite)):
+                continue
+        segments.append(courant)
+        debut = m.end()
+    segments.append(phrase[debut:])
+    nets = []
+    for i, seg in enumerate(segments):
+        dictee = bool(_DEBUT_DICTEE.match(seg))
+        nets.append(seg.strip().rstrip(" ,;") if dictee else seg.strip(" .!?,;"))
+    return [seg for seg in nets if seg]
 
 
 def router_commande_pc(phrase, piece=""):
@@ -1173,10 +1549,23 @@ def router_commande_pc(phrase, piece=""):
         return None
 
 
+_OUVERTURES = {"ouvrir_application", "launch_app", "lancer_application_pc", "activer_fenetre",
+               "ouvrir_navigateur"}
+
+
+def _fenetre_de_l_etape(nom_outil, arguments):
+    """Application/fenetre visee par une etape d'ouverture ou d'activation, sinon ''."""
+    if nom_outil not in _OUVERTURES:
+        return ""
+    return str(arguments.get("nom") or arguments.get("titre") or "").strip()
+
+
 @outil(
     nom="enchainer_commandes",
-    description="Execute plusieurs commandes simples a la suite (« ouvre Chrome puis lance YouTube »). "
-                "Chaque etape est une phrase de commande ; s'arrete a la premiere qui echoue.",
+    description="Execute plusieurs commandes simples a la suite (« ouvre le Bloc-notes puis ecris Bonjour », "
+                "« ouvre Chrome puis lance YouTube »). Chaque etape est une phrase de commande ; le texte a "
+                "taper va dans l'application ouverte a l'etape precedente ; s'arrete a la premiere etape "
+                "qui echoue et le dit.",
     parametres={"type": "object", "properties": {"etapes": {"type": "array", "items": {"type": "string"}}},
                 "required": ["etapes"]},
     mcp_expose=False,
@@ -1187,24 +1576,42 @@ def enchainer_commandes(etapes: list) -> str:
     from core import registre
     from core.erreurs import message_humain
     from core.routage_intentions import decider_prioritaire
-    dits = []
+    dits, tout_reussi, tout_verifie, cible = [], True, True, ""
     for s in list(etapes or [])[:6]:
         d = decider_prioritaire(str(s))
         outil_obj = registre.get(d.outil) if d is not None and d.type == "outil" else None
         if outil_obj is None:
             dits.append(f"Je n'ai pas compris « {s} ».")
+            tout_reussi = False
             break
         if getattr(outil_obj, "confirmation", False):
             dits.append(f"« {s} » demande une confirmation : dis-le-moi séparément.")
+            tout_reussi = False
             break
+        arguments = dict(d.arguments or {})
+        # Le texte tape / le bouton clique visent l'application ouverte juste avant.
+        if cible and d.outil in {"taper_texte", "cliquer_bouton"} and not arguments.get("fenetre"):
+            arguments["fenetre"] = cible
         try:
-            res = registre.executer(outil_obj, dict(d.arguments or {}))
+            res = registre.executer(outil_obj, arguments)
         except Exception as exc:
             LOG.exception("enchainer_commandes : %s", s)
             dits.append(message_humain(exc, d.outil))
+            tout_reussi = False
             break
         texte = str(res or "").strip()
         if texte:
             dits.append(texte)
+        if isinstance(res, ResultatOutil):
+            tout_verifie = tout_verifie and res.verifie
+        else:
+            tout_verifie = False
+        if est_echec(res):
+            tout_reussi = False
+            LOG.warning("enchainer_commandes : etape en echec, arret : %s", s)
+            break
+        cible = _fenetre_de_l_etape(d.outil, arguments) or cible
         time.sleep(float(reglage("controle_pc.pause_etapes", 1.2) or 0))
-    return " ".join(dits) or "Rien à faire."
+    return ResultatOutil(" ".join(dits) or "Rien à faire.", succes=tout_reussi and bool(dits),
+                         verifie=tout_reussi and tout_verifie and bool(dits),
+                         erreur="" if tout_reussi else "etape_en_echec")

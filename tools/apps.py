@@ -208,8 +208,8 @@ def launch_app(nom: str) -> str:
         try:                      # pas dans config.yaml : menu Demarrer (Store compris) avant d'abandonner
             from tools.controle_pc import lancer_application_pc
             trouve = lancer_application_pc(nom)
-            if not trouve.startswith("Je ne trouve pas"):
-                return trouve
+            if not str(trouve).startswith("Je ne trouve pas"):
+                return trouve          # succes OU echec explicite (focus, fenetre absente) : on le dit tel quel
         except Exception:
             pass
         return (f"Je ne connais pas {nom}. Donne-moi son chemin d'installation, "
@@ -218,9 +218,18 @@ def launch_app(nom: str) -> str:
     cible = apps[clef]
     try:
         os.startfile(cible)   # gere .exe, fichiers, et protocoles (steam://, spotify:)
-        return f"{clef} lance."
     except Exception as e:
         return f"Impossible de lancer {clef} : {e}"
+    if str(cible).lower().endswith(".exe"):
+        # Programme connu : on constate sa fenetre par son executable (sans pretendre plus que ce
+        # qu'on voit : un jeu lent a demarrer reste « lance, pas encore visible »).
+        try:
+            from tools.controle_pc import verifier_ouverture
+            return verifier_ouverture(clef, delai=8.0, requete=os.path.basename(str(cible)), strict=False)
+        except Exception:
+            pass
+    from core.resultat import ResultatOutil
+    return ResultatOutil(f"{clef} lance.", succes=True, verifie=False)   # protocole : rien a constater
 
 
 def _annonce_ajout(args):

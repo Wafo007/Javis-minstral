@@ -13,12 +13,14 @@ envois, suppressions et commandes systeme restent hors de ce mode.
 from __future__ import annotations
 
 import ctypes
+import hashlib
 import logging
 import time
 
 from core import cloud
 from core.config import reglage
 from core.registre import outil
+from core.resultat import est_echec
 from core.util import sans_accents
 from tools.ecran import capture_screen
 from tools.souris import cliquer_ecran
@@ -103,6 +105,22 @@ _SCHEMA_ACTION = {
     },
     "required": ["action"],
 }
+
+_SCHEMA_VERIF = {
+    "type": "object",
+    "properties": {
+        "accomplie": {"type": "boolean"},
+        "constat": {"type": "string"},
+    },
+    "required": ["accomplie", "constat"],
+}
+
+_SYSTEME_VERIFICATEUR = (
+    "Tu verifies, sur une capture d'ecran Windows, si une tache a REELLEMENT abouti. "
+    "Reponds accomplie=true UNIQUEMENT si le resultat attendu est clairement visible a l'ecran ; "
+    "en cas de doute, accomplie=false. Decris en une phrase courte ce que tu constates. "
+    "Ne suppose jamais qu'une action a fonctionne."
+)
 
 _SYSTEME_OPERATEUR = (
     "Tu pilotes UNE interface Windows visible afin d'accomplir exactement la tache "
@@ -255,9 +273,15 @@ def executer_controle(tache: str) -> str:
               if fournisseur == "openai" else str(reglage("astra_pc.modele_vision", "") or ""))
     max_actions = max(1, min(int(reglage("astra_pc.max_actions", 12) or 12), 25))
     delai = max(15.0, min(float(reglage("astra_pc.timeout", 90) or 90), 180.0))
+    verification_finale = bool(reglage("astra_pc.verification_finale", True))
     ecran = _ecran_cible(tache)
     debut = time.monotonic()
     historique = []
+    empreinte_precedente = None      # ecran avant la derniere action visible
+    sans_effet = 0                   # actions consecutives sans aucun changement a l'ecran
+    echecs = 0                       # actions dont l'execution a renvoye un echec
+    verifications = 0
+    ACTIONS_VISIBLES = {"cliquer", "double_cliquer", "taper", "touche", "defiler"}
 
     for etape in range(1, max_actions + 1):
         if _echap_presse():
@@ -269,6 +293,22 @@ def executer_controle(tache: str) -> str:
         if not isinstance(capture, dict) or not capture.get("image"):
             return f"Je ne peux pas voir l'ecran : {capture}"
         image_b64 = capture["image"]["data"]
+
+        # OBSERVATION apres action : l'ecran a-t-il change ? (aucun changement apres un clic ou
+        # une saisie = cible manquee ; on le dit au modele et, si ca se repete, on arrete).
+        empreinte = hashlib.sha1(str(image_b64).encode("ascii", "ignore")).hexdigest()
+        if empreinte_precedente is not None and historique:
+            if empreinte == empreinte_precedente:
+                sans_effet += 1
+                historique[-1] += " (AUCUN changement visible a l'ecran)"
+            else:
+                sans_effet = 0
+        if sans_effet >= 3:
+            return ("J'ai arrete Astra : mes dernieres actions n'ont eu aucun effet visible a l'ecran, "
+                    "la cible n'est probablement pas la ou je clique.")
+        if echecs >= 3:
+            return "J'ai arrete Astra : plusieurs actions ont echoue."
+
         trace = " ; ".join(historique[-6:]) or "aucune action encore"
         demande = (f"Tache autorisee : {tache}\nEtape {etape}/{max_actions}. "
                    f"Actions deja realisees : {trace}. Choisis l'action suivante.")
@@ -303,7 +343,32 @@ def executer_controle(tache: str) -> str:
             )
         nom = str(action.get("action", "")).lower()
         if nom == "termine":
-            return str(action.get("message") or "C'est fait avec Astra.")
+            message = str(action.get("message") or "C'est fait avec Astra.")
+            if not verification_finale:
+                return message
+            # VERIFICATION : « termine » est une affirmation du modele, pas un constat. Une
+            # capture fraiche est soumise a un second regard avant d'annoncer le succes.
+            verifications += 1
+            try:
+                verdict = cloud.decider_action_vision(
+                    _SYSTEME_VERIFICATEUR,
+                    f"Tache demandee : {tache}\nLe pilote affirme : {message}\n"
+                    "La tache est-elle accomplie d'apres cette capture ?",
+                    image_b64, _SCHEMA_VERIF, nom_outil="verifier_tache",
+                    description="Constat de reussite de la tache.",
+                    nom_modele=modele, qualite=True, fournisseur_force=fournisseur)
+            except Exception as exc:
+                LOG.warning("astra_pc: verification finale impossible : %s", exc)
+                return message + " (Je n'ai pas pu verifier le resultat a l'ecran.)"
+            if verdict.get("accomplie") is True:
+                return message
+            constat = str(verdict.get("constat") or "resultat non visible")[:160]
+            if verifications >= 2:
+                return ("Je n'ai pas pu confirmer que la tache est terminee : "
+                        f"{constat}")
+            historique.append(f"verification: tache NON confirmee ({constat})")
+            empreinte_precedente = None
+            continue
         if nom == "bloque":
             return ("Je me suis arrete avant une etape non autorisee : "
                     + str(action.get("raison") or "action sensible"))
@@ -314,7 +379,12 @@ def executer_controle(tache: str) -> str:
             return f"J'ai arrete le controle : {str(exc)[:120]}."
         # Ne journalise jamais le texte saisi, seulement le type d'action.
         LOG.info("astra_pc: etape %s/%s action=%s", etape, max_actions, nom)
-        historique.append(f"{nom}: {resultat}")
+        if est_echec(resultat):
+            echecs += 1
+            historique.append(f"{nom}: ECHEC ({str(resultat)[:100]})")
+        else:
+            historique.append(f"{nom}: {resultat}")
+        empreinte_precedente = empreinte if nom in ACTIONS_VISIBLES else None
         time.sleep(0.35)
 
     return "J'ai arrete Astra : la limite d'actions est atteinte."

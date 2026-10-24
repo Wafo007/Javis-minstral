@@ -308,7 +308,7 @@ class MediaRoutingTests(unittest.TestCase):
                     "uri": "spotify:track:abc", "name": "Blinding Lights"}), \
                 patch("tools.spotify._demarrer_lecture",
                       return_value=SimpleNamespace(status_code=204)), \
-                patch.object(spotify.os, "startfile") as startfile:
+                patch.object(spotify.os, "startfile", create=True) as startfile:
             resultat = spotify.lire_spotify("Blinding Lights")
 
         self.assertEqual(resultat, "Je lance « Blinding Lights » sur Spotify.")
@@ -317,7 +317,7 @@ class MediaRoutingTests(unittest.TestCase):
     def test_spotify_sans_oauth_ouvre_une_recherche_locale(self):
         with patch("tools.spotify._configure", return_value=False), \
                 patch("core.poste_distant.executer_principal", return_value=None), \
-                patch.object(spotify.os, "startfile") as startfile:
+                patch.object(spotify.os, "startfile", create=True) as startfile:
             resultat = spotify.lire_spotify("Daft Punk")
 
         self.assertIn("recherche Spotify", resultat)

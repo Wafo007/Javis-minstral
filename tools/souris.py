@@ -25,7 +25,7 @@ from tools.ecran import derniere_capture
 
 # Positionnement en pixels PHYSIQUES (juste meme si l'appli n'est pas DPI-aware,
 # pour coller a la capture mss qui est en pixels physiques).
-_user32 = ctypes.windll.user32
+_user32 = ctypes.windll.user32 if hasattr(ctypes, "windll") else None   # None hors Windows
 
 # (down, up) pour mouse_event selon le bouton.
 _BOUTONS = {
