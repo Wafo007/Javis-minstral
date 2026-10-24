@@ -116,6 +116,7 @@ _NON_LOCAUX = {
     "lire_netflix",
     "controle_pc_astra",
     "code_modification_demarrer", "code_modification_ecrire", "code_modification_enregistrer",
+    "code_modifier", "code_restaurer", "code_tester",
     "call_with_message", "call_and_book", "cout_appels",
     "instagram_resume", "rafraichir_instagram",
     "get_mentions_summary", "get_channel_summary",
@@ -197,6 +198,22 @@ def autorisations():
 def est_autorise(nom):
     """Vrai si on SAUTE la confirmation EN LOCAL (N2 memorise). Jamais un N3 ni un N1."""
     return niveau(nom) == "N2" and nom in autorisations()
+
+
+def est_autorise_local(nom):
+    """Comme est_autorise, plus la dispense CHOISIE par l'utilisatrice dans config.yaml pour la voix LOCALE.
+
+    ``astra_pc.sans_confirmation: true`` supprime le « tu confirmes ? » de controle_pc_astra (le pilotage
+    visuel du PC). Sont exclus et restent confirmes : tout autre N3 (mails, appels, paiements, suppressions,
+    extinction...), les satellites et l'acces distant. Astra garde par ailleurs son propre refus des taches
+    risquees (paiement, mot de passe, suppression...), voir tools/astra_pc.py::_RISQUES.
+    """
+    if est_autorise(nom):
+        return True
+    if nom == "controle_pc_astra":
+        from core.config import reglage
+        return bool(reglage("astra_pc.sans_confirmation", False))
+    return False
 
 
 def autoriser_toujours(nom):

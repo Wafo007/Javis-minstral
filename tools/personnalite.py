@@ -7,7 +7,7 @@ from core.registre import outil
     nom="changer_personnalite",
     description="Change le mode de personnalite de l'assistant. A utiliser quand "
                 "l'utilisateur dit 'passe en mode neutre', 'mode concis', 'mode "
-                "jarvis', 'sois plus sarcastique', 'redeviens normal'.",
+                "jarvis', 'sois plus sarcastique', 'redeviens Jarvis'. (« mode normal » est un MODE D'USAGE, pas une personnalite : n'appelle pas cet outil pour lui.)",
     parametres={
         "type": "object",
         "properties": {

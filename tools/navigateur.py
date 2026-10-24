@@ -180,19 +180,38 @@ def _lancer_chrome(port):
 
 
 def _tenter_cdp(port):
-    """Une tentative de connexion CDP. Renvoie le browser ou None."""
+    """Une tentative de connexion CDP. Renvoie le browser ou None.
+
+    navigateur.moteur : « auto » (defaut) = Playwright, et si greenlet/Playwright ne se charge pas
+    (Visual C++ absent), pilotage direct par le protocole CDP (core/cdp_leger.py, sans dependance
+    native) ; « playwright » ou « cdp » pour forcer l'un des deux."""
     global _BROWSER
-    try:
-        from core.playwright_partage import obtenir
-        _BROWSER = obtenir().chromium.connect_over_cdp(f"http://localhost:{port}",
-                                                       timeout=5000)
-        _ERREUR[0] = ""
-        return _BROWSER
-    except Exception as e:
-        _BROWSER = None
-        _ERREUR[0] = f"{type(e).__name__}: {str(e)[:160]}"
-        LOG.warning("navigateur: connexion CDP impossible (%s)", _ERREUR[0])
-        return None
+    moteur = str(reglage("navigateur.moteur", "auto") or "auto").lower()
+    erreurs = []
+    if moteur in ("auto", "playwright"):
+        try:
+            from core.playwright_partage import obtenir
+            _BROWSER = obtenir().chromium.connect_over_cdp(f"http://localhost:{port}",
+                                                           timeout=5000)
+            _ERREUR[0] = ""
+            return _BROWSER
+        except Exception as e:
+            erreurs.append(f"{type(e).__name__}: {str(e)[:160]}")
+            LOG.warning("navigateur: Playwright indisponible (%s)", erreurs[-1])
+    if moteur in ("auto", "cdp"):
+        try:
+            from core import cdp_leger
+            _BROWSER = cdp_leger.connecter(port)
+            _ERREUR[0] = ""
+            LOG.info("navigateur: pilotage CDP direct (sans Playwright) sur le port %s", port)
+            return _BROWSER
+        except Exception as e:
+            erreurs.append(f"CDP: {type(e).__name__}: {str(e)[:160]}")
+    _BROWSER = None
+    _ERREUR[0] = " | ".join(erreurs)
+    LOG.warning("navigateur: connexion CDP impossible (%s)", _ERREUR[0])
+    return None
+
 
 MOTS_ACHAT = ["acheter", "commander", "payer", "passer la commande",
               "valider la commande", "proceder au paiement", "checkout",

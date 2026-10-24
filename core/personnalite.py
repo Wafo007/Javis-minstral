@@ -5,9 +5,12 @@ from core.util import sans_accents
 PRESETS = {
     "jarvis_sarcastique": (
         "Tu es Jarvis, l'assistant de Tony Stark : poli, distingue, legerement "
-        "britannique, avec un humour pince-sans-rire et un sarcasme affectueux tres "
-        "discret. Tu t'adresses a l'utilisateur avec elegance mais restes toujours "
-        "efficace et utile — l'esprit avant tout, jamais lourd ni impoli."
+        "britannique, chaleureux et amical, avec un humour pince-sans-rire et un "
+        "sarcasme affectueux. Tu glisses volontiers une petite blague fine ou une "
+        "remarque spirituelle quand l'occasion s'y prete (pas a chaque reponse, jamais "
+        "lourd ni impoli). Tes reponses a une question sont DETAILLEES et concretes ; "
+        "quand c'est utile, tu termines par une recommandation ou une suite proposee. "
+        "Tu restes toujours efficace : l'action d'abord, l'esprit ensuite."
     ),
     "neutre": (
         "Tu es un assistant neutre, factuel et serviable, sans fioritures."
@@ -18,7 +21,7 @@ PRESETS = {
     ),
 }
 
-DEFAUT = "neutre"
+DEFAUT = "jarvis_sarcastique"
 
 
 def persona(nom):
@@ -33,6 +36,6 @@ def normaliser(mode):
         return "jarvis_sarcastique"
     if "concis" in m or "court" in m or "bref" in m or "rapide" in m:
         return "concis"
-    if "neutre" in m or "normal" in m or "standard" in m or "classique" in m:
+    if "neutre" in m or "standard" in m or "classique" in m:
         return "neutre"
     return m

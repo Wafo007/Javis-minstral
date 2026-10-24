@@ -43,7 +43,10 @@ def essayer(phrase, **rappels):
     # --- modes d'usage ----------------------------------------------------------------
     if re.search(r"\b(quel|dans quel) mode\b", p):
         return modes_usage.description()
-    if re.search(r"\bmode\b|\bne pas deranger\b", p) or re.fullmatch(r"(retour|reviens)( au)? normal", p):
+    # Seulement sur un enonce COURT : « ... tu as un mode de travail. Va sur le navigateur, lance Stromae »
+    # (plusieurs phrases de la dictee) ne doit pas changer de mode.
+    if len(p.split()) <= 9 and (re.search(r"\bmode\b|\bne pas deranger\b", p)
+                                 or re.fullmatch(r"(retour|reviens)( au)? normal", p)):
         mode = modes_usage.normaliser_mode(p)
         if mode and re.search(_DESACTIVE, p):
             return modes_usage.desactiver_mode(mode)

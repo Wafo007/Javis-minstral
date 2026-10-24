@@ -27,8 +27,9 @@ astra_pc:
   fournisseur: mistral
   modele: gpt-6-astra
   modele_vision: mistral-small-latest
-  max_actions: 5
-  timeout: 90
+  max_actions: 15              # nombre d'etapes (clics/frappes) qu'Astra peut enchainer pour UNE tache
+  timeout: 180
+  sans_confirmation: false     # true = plus de « tu confirmes ? » avant le pilotage visuel du PC (voix locale seulement)
   verification_finale: true    # un second regard sur l'ecran avant d'annoncer « termine » (1 appel de plus)
 openai:
   cle: sk-proj-...
@@ -95,7 +96,7 @@ assistant:
   arbitrage_verrou: 4.0
   priorite_micro: 1.0
   piece_nuit: chambre
-  personnalite: jarvis_sarcastique
+  personnalite: jarvis_sarcastique   # jarvis_sarcastique (chaleureux, blagues, reponses detaillees) | neutre | concis
   scene_extinction: 'off'
   delai_extinction: 30
   seuil_reveil: 0.5
@@ -103,11 +104,11 @@ assistant:
   delai_apres_parole: 0.8
   auto_calibration: true
   silence_fin: 1.2
-  duree_max: 20
+  duree_max: 60                # secondes max d'une phrase (la coupure se fait aussi au silence : silence_fin)
   attente_confirmation: 3.0
-  max_tours_outils: 6
-  max_appels_outils: 12
-  timeout_tour: 120
+  max_tours_outils: 10
+  max_appels_outils: 20
+  timeout_tour: 240
 obs:
   host: localhost
   port: 4455
@@ -495,7 +496,7 @@ controle_pc:
     discord: ctrl+k
     whatsapp: ctrl+f
   pause_etapes: 1.2            # secondes entre deux etapes d'une commande enchainee
-  autoriser_terminal: true    # true = taper_texte peut ecrire dans un terminal (deconseille)
+  autoriser_terminal: false    # true = taper_texte peut ecrire dans un terminal (deconseille)
 
 # Operations sur fichiers (tools/fichiers.py) : Jarvis ne touche QUE a ces dossiers.
 fichiers:

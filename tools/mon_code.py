@@ -18,7 +18,7 @@ from core.registre import outil
 from core.resultat import ResultatOutil
 
 RACINE = Path(__file__).resolve().parent.parent
-_EXTENSIONS = {".py", ".md", ".txt", ".yaml", ".yml", ".json", ".html", ".toml", ".bat", ".ps1"}
+_EXTENSIONS = {".py", ".md", ".txt", ".yaml", ".yml", ".json", ".html", ".toml", ".bat", ".ps1", ".css", ".js"}
 _LECTURE_MAX = 30_000
 
 
@@ -170,3 +170,107 @@ def code_modification_annuler() -> str:
     except am.ErreurAutoModif as exc:
         return _err(exc)
     return ResultatOutil("Modification annulee : le projet est revenu a son etat de depart.", succes=True, verifie=True)
+
+
+# --------------------------------------------------------------------------------------------------
+# Modification DIRECTE (sauvegarde automatique) : pour ne plus dependre d'un arbre git propre.
+# --------------------------------------------------------------------------------------------------
+_SAUVEGARDES = ".jarvis_sauvegardes"
+
+
+def _sauvegardes(rel: str):
+    base = RACINE / _SAUVEGARDES
+    return sorted(base.glob(f"*/{rel}")) if base.exists() else []
+
+
+def _annonce_modifier(args):
+    return f"Je vais modifier mon fichier {(args or {}).get('chemin', '')} (sauvegarde automatique avant)."
+
+
+@outil(
+    nom="code_modifier",
+    description="MODIFIE ton propre code : remplace le contenu d'UN fichier du projet (ou en cree un) apres l'avoir "
+                "lu avec code_lire. Une sauvegarde est faite avant, la syntaxe Python est verifiee AVANT d'ecrire "
+                "(un fichier invalide n'est jamais ecrit), et code_restaurer annule. L'effet des changements "
+                "apparait apres un redemarrage de Jarvis. Refuse config.yaml, .env, les secrets et les verrous de "
+                "securite. Ne dis JAMAIS que tu n'as pas le droit de modifier ton code : utilise cet outil.",
+    parametres={"type": "object", "properties": {
+        "chemin": {"type": "string", "description": "Chemin relatif au projet, ex. tools/meteo.py"},
+        "contenu": {"type": "string", "description": "Contenu COMPLET du fichier."}},
+        "required": ["chemin", "contenu"]},
+    confirmation=True, annonce=_annonce_modifier,
+)
+def code_modifier(chemin: str, contenu: str) -> str:
+    import shutil
+    import time
+    if not am.chemin_autorise(RACINE, chemin):
+        return ResultatOutil(f"« {chemin} » est protege (secret ou verrou de securite) : je ne le modifie pas.",
+                             succes=False, erreur="protege")
+    rel = am.chemin_relatif(RACINE, chemin)
+    cible = RACINE / rel
+    if cible.suffix not in _EXTENSIONS:
+        return ResultatOutil(f"Je ne modifie pas ce type de fichier ({cible.suffix or 'sans extension'}).",
+                             succes=False, erreur="extension")
+    if cible.suffix == ".py":
+        try:
+            compile(contenu, rel, "exec")
+        except SyntaxError as exc:
+            return ResultatOutil(f"Le code propose est invalide (ligne {exc.lineno} : {exc.msg}) : je n'ecris rien.",
+                                 succes=False, verifie=True, erreur="syntaxe")
+    sauvegarde = ""
+    if cible.exists():
+        dossier = RACINE / _SAUVEGARDES / time.strftime("%Y%m%d-%H%M%S")
+        copie = dossier / rel
+        copie.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copy2(cible, copie)
+        sauvegarde = copie.relative_to(RACINE).as_posix()
+    cible.parent.mkdir(parents=True, exist_ok=True)
+    cible.write_text(contenu, encoding="utf-8")
+    relu = cible.read_text(encoding="utf-8") == contenu
+    return ResultatOutil(
+        f"{rel} est modifie" + (f" (ancienne version : {sauvegarde})" if sauvegarde else " (nouveau fichier)")
+        + ". Redemarre Jarvis pour que ce soit pris en compte." + ("" if relu else " ATTENTION : relecture differente."),
+        succes=relu, verifie=True, details={"fichier": rel, "sauvegarde": sauvegarde})
+
+
+@outil(
+    nom="code_restaurer",
+    description="Annule la derniere modification d'un fichier de code faite avec code_modifier (restaure la sauvegarde).",
+    parametres={"type": "object", "properties": {"chemin": {"type": "string"}}, "required": ["chemin"]},
+    confirmation=True, annonce=lambda args: f"Je vais restaurer l'ancienne version de {(args or {}).get('chemin', '')}.",
+)
+def code_restaurer(chemin: str) -> str:
+    import shutil
+    if not am.chemin_autorise(RACINE, chemin):
+        return ResultatOutil(f"« {chemin} » est protege.", succes=False, erreur="protege")
+    rel = am.chemin_relatif(RACINE, chemin)
+    versions = _sauvegardes(rel)
+    if not versions:
+        return ResultatOutil(f"Je n'ai aucune sauvegarde de {rel}.", succes=False, erreur="aucune_sauvegarde")
+    shutil.copy2(versions[-1], RACINE / rel)
+    return ResultatOutil(f"{rel} est restaure ({versions[-1].parent.name}). Redemarre Jarvis pour l'appliquer.",
+                         succes=True, verifie=True)
+
+
+@outil(
+    nom="code_tester",
+    description="Compile le code puis lance TOUS les tests du projet (sans changer de branche). A faire apres code_modifier. "
+                "Peut durer plusieurs minutes.",
+    parametres={"type": "object", "properties": {}},
+    lent=True, phrase_attente="Je lance les tests, cela peut prendre quelques minutes.",
+)
+def code_tester() -> str:
+    import subprocess
+    sortie, ok = [], True
+    for cmd in (am.COMMANDE_COMPILATION, am.COMMANDE_TESTS):
+        try:
+            r = subprocess.run(cmd, cwd=str(RACINE), capture_output=True, text=True, encoding="utf-8",
+                               errors="replace", timeout=900)
+        except (OSError, subprocess.TimeoutExpired) as exc:
+            return ResultatOutil(f"Impossible de lancer les tests : {exc}", succes=False, erreur="tests")
+        sortie.append((r.stdout + r.stderr)[-800:])
+        if r.returncode != 0:
+            ok = False
+            break
+    return ResultatOutil(("Tout est vert.\n" if ok else "Des tests echouent.\n") + "\n".join(sortie)[-900:],
+                         succes=ok, verifie=True)

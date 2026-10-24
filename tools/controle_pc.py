@@ -1463,8 +1463,11 @@ def _route_simple(phrase):
                      r"(?:le |la |les |l |un |une |mon |ma )?(?:bouton |lien |onglet |icone |menu |option |case )?(.+)", p)
     if m:
         cible = m.group(1).strip()
-        if cible in _DEICTIQUES:
-            return "souris_clic", {"bouton": "gauche"}
+        if cible in _DEICTIQUES or re.fullmatch(r"(?:(?:clique|cliquer|clic|dessus|ici|la|ca) ?)+", cible):
+            return "souris_clic", {"bouton": "gauche"}          # « clique dessus. Clique dessus. »
+        if re.match(r"(?:le |la |l )?(?:premier|premiere|1er|1ere|deuxieme|2eme|dernier|derniere)\b", cible) \
+                or re.search(r"\b(?:video|resultat|lien de|image)\b", cible):
+            return None        # cible VISUELLE : pas un bouton nomme, la vision/Astra s'en charge
         return "cliquer_bouton", {"nom": " ".join(_tranche(p, orig, m.start(1), m.end(1)))}
 
     m = re.match(r"(?:tape|taper|ecris|ecrire|saisis|saisir)\b\s*(.*)", p)

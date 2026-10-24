@@ -76,7 +76,7 @@ SEUIL_INTERRUPTION = config.reglage("assistant.seuil_interruption", 0.7)  # coup
 SEUIL_PAROLE_SUR = config.reglage("assistant.seuil_parole", 0.025)   # au-dessus = parole sure
 SEUIL_SILENCE = config.reglage("assistant.seuil_silence", 0.010)     # en-dessous = silence
 SILENCE_FIN = config.reglage("assistant.silence_fin", 1.2)           # s de silence -> fin de phrase
-DUREE_MAX = config.reglage("assistant.duree_max", 20)                # s max d'enregistrement
+DUREE_MAX = config.reglage("assistant.duree_max", 60)                # s max d'enregistrement
 BLOCS_AVANT_VERIF = 5      # 5 x 80 ms = 0,4 s de parole continue
 DELAI_ENTRE_VERIFS = 1.0
 
@@ -92,9 +92,12 @@ SENTINEL_CONFIRM = "\x00confirmation\x00"
 # Regles de base (format vocal, outils). La personnalite (persona) est ajoutee
 # devant, et la memoire derriere, par _refaire_systeme.
 SYSTEME_BASE = (
-    "Tes reponses sont lues a voix haute : reponds en une a deux phrases maximum "
-    "(une seule si possible), sans listes, sans titres, sans asterisques ni emoji. "
-    "Parle naturellement, en francais. Va a l'essentiel. Ne pose jamais deux fois "
+    "Tes reponses sont lues a voix haute, sans listes, sans titres, sans asterisques ni emoji. "
+    "Pour une commande simple executee, une phrase courte suffit. Pour une question, une "
+    "explication, une analyse, un diagnostic ou quand l'utilisateur demande des details, "
+    "reponds de facon COMPLETE et precise (quatre a huit phrases naturelles, avec les faits "
+    "concrets : noms de fichiers, causes, etapes), jamais une reponse vague. "
+    "Parle naturellement, en francais. Ne pose jamais deux fois "
     "la meme question et ne redemande pas une confirmation deja demandee. "
     "Ne commence jamais une reponse finale par une phrase d'attente comme "
     "'attends', 'un instant', 'je regarde' ou 'je cherche'. Le systeme annonce "
@@ -118,6 +121,10 @@ SYSTEME_BASE = (
     "Jarvis et ne doit jamais servir a saisir du texte dans une fenetre. Ne dis jamais "
     "qu'une action est faite, ou qu'une application ne s'est pas ouverte, sans t'appuyer "
     "sur le retour de l'outil : s'il indique un echec ou « non verifie », rapporte-le tel quel. "
+    "Tu PEUX lire et modifier ton propre code : code_lister, code_lire puis code_modifier "
+    "(sauvegarde automatique, effet au redemarrage), code_tester, code_restaurer. Ne dis "
+    "jamais que c'est interdit ni que ton code est sur un serveur : il est sur le PC de "
+    "l'utilisateur. Pour lancer une video YouTube, utilise youtube_lire (aucun clic). "
     "Pour lire un titre ou une playlist Spotify, utilise lire_spotify ; pour une "
     "série ou un film Netflix précis, utilise lire_netflix ; pour pause, suivant "
     "ou précédent, utilise controler_media. Ces actions ne nécessitent pas Astra. "
@@ -569,7 +576,7 @@ def _executer_outils(blocs):
             resultat = ("Il manque le parametre obligatoire : "
                         + ", ".join(registre.arguments_manquants(outil, arguments))
                         + ". Redemande-le a l'utilisateur ou reformule l'appel.")
-        elif outil.confirmation and not registre.est_autorise(nom):
+        elif outil.confirmation and not registre.est_autorise_local(nom):
             # N2 memorise "toujours autoriser" -> on n'attend pas (est_autorise True).
             # Un N3 n'est jamais autorise d'avance : il repasse toujours par ici.
             resultat = registre.mettre_en_attente(outil, arguments)
@@ -598,8 +605,13 @@ def _executer_outils(blocs):
                            "data": img["data"]},
             }]
         else:
-            print(f"  [outil] {nom} -> termine")
-            _hud("outil", nom, "Action terminee")
+            try:
+                from core.resultat import est_echec as _echec
+                _statut = "ECHEC" if _echec(resultat) else ("en attente de confirmation" if resultat == "En attente de la confirmation vocale de l'utilisateur." else "termine")
+            except Exception:
+                _statut = "termine"
+            print(f"  [outil] {nom} -> {_statut}")
+            _hud("outil", nom, "Echec" if _statut == "ECHEC" else "Action terminee")
             contenu = str(resultat)
 
         resultats.append({
@@ -663,7 +675,7 @@ def _repondre_route_prioritaire_commune(historique):
         outil = registre.get(nom_outil)
         if outil is None:
             return None
-        confirmation = outil.confirmation and not registre.est_autorise(nom_outil)
+        confirmation = outil.confirmation and not registre.est_autorise_local(nom_outil)
         fil_accuse = None
         if outil.lent and outil.phrase_attente and not confirmation:
             _hud("etat", "parole")
@@ -743,11 +755,11 @@ def repondre(historique):
     from core.routage_intentions import modules_pour_phrase
     modules_outils = modules_pour_phrase(question)
     max_tours_outils = max(1, min(
-        int(config.reglage("assistant.max_tours_outils", 6) or 6), 12))
+        int(config.reglage("assistant.max_tours_outils", 10) or 10), 12))
     max_appels_outils = max(1, min(
-        int(config.reglage("assistant.max_appels_outils", 12) or 12), 30))
+        int(config.reglage("assistant.max_appels_outils", 20) or 20), 30))
     timeout_tour = max(15.0, min(
-        float(config.reglage("assistant.timeout_tour", 120) or 120), 300.0))
+        float(config.reglage("assistant.timeout_tour", 240) or 240), 300.0))
     debut_tour = time.monotonic()
     appels_outils = 0
 

@@ -1,5 +1,16 @@
 # Changelog
 
+## Corrections du journal reel (octobre 2026)
+
+- `core/cdp_leger.py` : pilotage de Chrome par CDP sans Playwright (ni greenlet, ni Visual C++) ; `navigateur._tenter_cdp` y bascule seul.
+- `tools/youtube.py` (`youtube_lire`) : lance une video sans cliquer ; routage « lance X sur YouTube ».
+- Navigation envoyee a Hermes, « clique dessus » pris pour un bouton, mode travail declenche par une longue dictee : corriges.
+- Personnalite par defaut chaleureuse (blagues, reponses detaillees, recommandation finale) ; « mode normal » n'est plus la personnalite neutre.
+- `tools/mon_code.py` : `code_modifier` (sauvegarde + verification de syntaxe + restauration), `code_tester`, cycle git `code_modification_*`.
+- `cloud.secours_actif()` : secours Gemini coherent entre chat et vision (Astra) ; `astra_pc.sans_confirmation` (opt-in, voix locale).
+- Limites de tour 240 s / 10 tours / 20 appels, duree d'une phrase 60 s, Astra 15 etapes (config.example.yaml).
+- `scripts/reparer_vcruntime.py` : DLL Visual C++ en local si le redistribuable ne s'installe pas.
+
 Toutes les évolutions notables de Jarvis. Format inspiré de
 [Keep a Changelog](https://keepachangelog.com/fr/) ; versionnage
 [SemVer](https://semver.org/lang/fr/).

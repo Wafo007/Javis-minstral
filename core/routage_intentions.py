@@ -70,6 +70,7 @@ def decider_prioritaire(phrase: str, piece: str = "") -> Decision | None:
         return Decision("vision", tache=phrase)
 
     for module, fonction in (
+        ("tools.youtube", "router_youtube"),
         ("tools.alexa", "router_commande"),
         ("tools.media", "router_commande_media"),
         ("tools.apps", "router_ouverture_simple"),
@@ -160,6 +161,7 @@ _DOMAINES = (
     (("chrome", "navigateur", "onglet", "site", "page web", "internet",
       "cherche sur le web", "recherche web", "reserve", "reservation"),
      {"navigateur", "web", "reservation"}),
+    (("youtube",), {"youtube", "navigateur", "controle_pc"}),
     (("script", "hook", "accroche", "storyboard", "contenu", "video",
       "youtube", "tiktok", "reel", "publication", "inspiration"),
      {"contenu", "suivi", "deleguer_a_hermes"}),

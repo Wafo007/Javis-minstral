@@ -35,8 +35,8 @@ def recentes(instant=None):
 def consigne(instant=None):
     """Complement de consigne : style de commande, actions multiples, corrections, contexte."""
     lignes = [
-        "Commande simple reussie : reponds en 3 a 6 mots (ex. « Chrome est ouvert. »), sans formule "
-        "de politesse. Details seulement pour une demande complexe.",
+        "Commande simple reussie : une phrase courte (ex. « Chrome est ouvert. »). Pour une question, une "
+        "analyse ou une demande de details : reponse complete et precise, jamais vague.",
         "Si la demande contient plusieurs actions (« ouvre Chrome, lance YouTube et mets le volume a "
         "30 % »), appelle TOUS les outils necessaires, dans l'ordre, puis resume en une phrase.",
         "Si l'utilisateur corrige (« non, Firefox », « finalement 30 »), refais la derniere action avec "

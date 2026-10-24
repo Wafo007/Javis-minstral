@@ -102,6 +102,12 @@ def extraire_tache_contenu(phrase: str):
     mots = set(normalise.split())
     if not original or not (mots & _OBJETS_CONTENU):
         return None
+    try:
+        from core.routage_intentions import _est_commande_lecture_web
+        if _est_commande_lecture_web(normalise):
+            return None          # « va sur YouTube, lance Stromae » : une action, pas un travail de fond
+    except Exception:
+        pass
     if not (mots & _ACTIONS_CONTENU):
         return None
     if (mots & _ACTIONS_PHYSIQUES) and (mots & _OBJETS_PHYSIQUES):

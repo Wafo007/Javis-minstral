@@ -127,6 +127,18 @@ def client_mistral():
         timeout=float(reglage("mistral.timeout", 180)),
         max_retries=int(reglage("mistral.max_retries", 2)),
     )
+def secours_actif() -> bool:
+    """Secours Gemini : cloud.secours_actif s'il est defini ; sinon ACTIF des qu'une cle Gemini existe.
+
+    core/llm.py activait deja le secours par defaut alors que la vision (Astra) ne l'activait pas :
+    avec une cle Gemini et sans reglage explicite, le chat basculait mais Astra s'arretait sur un 503.
+    """
+    valeur = reglage("cloud.secours_actif", None)
+    if valeur is None:
+        return bool(os.getenv("GEMINI_API_KEY") or str(reglage("gemini.cle", "") or "").strip())
+    return bool(valeur)
+
+
 def client_gemini():
     """Client Gemini utilisant l'interface compatible OpenAI."""
 
@@ -330,9 +342,7 @@ def repondre_texte(systeme: str, historique: list, max_tokens: int = 500,
 
     if provider == "mistral":
 
-        secours_actif = bool(
-            reglage("cloud.secours_actif", False)
-        )
+        secours_actif = globals()["secours_actif"]()
 
         if secours_actif and not _mistral_disponible():
             return _repondre_texte_gemini(
@@ -564,7 +574,7 @@ def decider_action_vision(systeme: str, texte: str, image_b64: str,
 
     # Defini pour TOUS les fournisseurs (il n'existait que pour Mistral : un appel
     # OpenAI/Anthropic levait UnboundLocalError avant tout appel reseau).
-    secours_actif = bool(reglage("cloud.secours_actif", False))
+    secours_actif = globals()["secours_actif"]()
 
     if provider == "mistral" and secours_actif and not _mistral_disponible():
         return _decider_action_gemini(
@@ -653,7 +663,7 @@ def decider_action_vision(systeme: str, texte: str, image_b64: str,
         if rep is None:
 
             if (
-                bool(reglage("cloud.secours_actif", False))
+                globals()["secours_actif"]()
                 and derniere is not None
                 and _erreur_secourable(derniere)
             ):

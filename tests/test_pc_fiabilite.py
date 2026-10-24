@@ -469,3 +469,176 @@ class TestSecuritePreservee(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class ArgumentsObligatoiresTest(unittest.TestCase):
+    """Journal reel : controle_pc_astra appele sans « tache » -> confirmation vocale puis TypeError."""
+
+    def test_astra_sans_tache_est_detecte_avant_confirmation(self):
+        from core import registre
+        registre.charger_outils()
+        o = registre.get("controle_pc_astra")
+        self.assertEqual(registre.arguments_manquants(o, {}), ["tache"])
+        self.assertEqual(registre.arguments_manquants(o, {"tache": ""}), ["tache"])
+        self.assertEqual(registre.arguments_manquants(o, {"tache": "ouvre YouTube"}), [])
+
+    def test_relecture_wm_gettext_hors_windows_renvoie_none(self):
+        from tools import controle_pc as pc
+        if not pc.EST_WINDOWS:
+            self.assertIsNone(pc._relire_wm_gettext(123))
+
+
+class RoutageNavigateurPasHermesTest(unittest.TestCase):
+    """Journal reel : une commande YouTube etait deleguee a Hermes."""
+
+    def test_commande_youtube_ne_va_pas_chez_hermes(self):
+        from core.routage_intentions import modules_pour_phrase
+        m = modules_pour_phrase("Ouvre mon navigateur, va sur YouTube et recherche Stromae, lance la première vidéo")
+        self.assertNotIn("deleguer_a_hermes", m)
+        self.assertTrue({"navigateur", "controle_pc"} <= m)
+
+    def test_creation_de_contenu_reste_delegable(self):
+        from core.routage_intentions import modules_pour_phrase
+        m = modules_pour_phrase("Écris un script et trois accroches pour ma vidéo YouTube")
+        self.assertIn("deleguer_a_hermes", m)
+
+
+class JournalReelYoutubeEtClicTest(unittest.TestCase):
+    """Echecs constates : navigation envoyee a Hermes, « clique dessus » pris pour un bouton, mode travail parasite."""
+
+    def test_router_youtube(self):
+        from tools.youtube import router_youtube
+        r = router_youtube("Très bien. Va sur mon navigateur. Ouvre YouTube et lance Stromae, le fils de joie. Clique dessus.")
+        self.assertEqual(r[0], "youtube_lire")
+        self.assertIn("Stromae", r[1]["requete"])
+        r = router_youtube("Ouvre YouTube, recherche Stromae Papaoutai et lance la première vidéo")
+        self.assertEqual(r[1]["requete"].lower(), "stromae papaoutai")
+        self.assertIsNone(router_youtube("ouvre YouTube"))
+        self.assertIsNone(router_youtube("lance youtube"))
+        self.assertIsNone(router_youtube("lance Stromae"))          # sans YouTube : routage habituel
+
+    def test_extraction_premiere_video(self):
+        from tools.youtube import extraire_videos
+        html = ('<script>var ytInitialData = {"contents":[{"videoRenderer":{"videoId":"abcdefghijk","title":'
+                '{"runs":[{"text":"Stromae - Papaoutai"}]}}},{"videoRenderer":{"videoId":"ZZZZZZZZZZZ",'
+                '"title":{"runs":[{"text":"autre"}]}}}]};</script>')
+        self.assertEqual(extraire_videos(html)[0], ("abcdefghijk", "Stromae - Papaoutai"))
+        self.assertEqual(extraire_videos('x "videoId":"12345678901" y')[0][0], "12345678901")
+        self.assertEqual(extraire_videos("rien"), [])
+
+    def test_youtube_lire_ouvre_la_video_sans_clic(self):
+        from tools import youtube
+        ouvertes = []
+        with patch.object(youtube, "_telecharger", return_value='"videoId":"abcdefghijk"'), \
+                patch.object(youtube, "_ouvrir", side_effect=lambda u: ouvertes.append(u) or True):
+            r = youtube.youtube_lire("Stromae")
+        self.assertTrue(r.succes)
+        self.assertEqual(ouvertes, ["https://www.youtube.com/watch?v=abcdefghijk"])
+
+    def test_youtube_lire_sans_resultat_est_honnete(self):
+        from tools import youtube
+        with patch.object(youtube, "_telecharger", side_effect=OSError("hors ligne")), \
+                patch.object(youtube, "_ouvrir", return_value=True):
+            r = youtube.youtube_lire("Stromae")
+        self.assertFalse(r.succes)
+
+    def test_clique_dessus_repete_et_cible_visuelle(self):
+        from tools import controle_pc as pc
+        self.assertEqual(pc.router_commande_pc("Clique dessus. Clique dessus.")[0], "souris_clic")
+        self.assertIsNone(pc.router_commande_pc("clique sur le premier lien"))
+        self.assertEqual(pc.router_commande_pc("clique sur Enregistrer")[0], "cliquer_bouton")
+
+    def test_navigation_youtube_pas_deleguee_a_hermes(self):
+        from tools.deleguer_a_hermes import extraire_tache_contenu
+        self.assertIsNone(extraire_tache_contenu("Va sur mon navigateur, ouvre YouTube et lance Stromae"))
+
+    def test_mode_travail_pas_declenche_par_une_longue_dictee(self):
+        from core import commandes_locales
+        with patch.object(commandes_locales.modes_usage, "definir_mode", return_value="MODE") as dm:
+            r = commandes_locales.essayer("Bien, tu as un mode de travail. Très bien. Va sur mon navigateur. "
+                                          "Ouvre YouTube et lance Stromae, le fils de joie.")
+        dm.assert_not_called()
+        self.assertNotEqual(r, "MODE")
+
+
+class CdpLegerTest(unittest.TestCase):
+    """Pilotage de Chrome sans Playwright : trame WebSocket et repli de navigateur._tenter_cdp."""
+
+    def test_trames_websocket_aller_retour(self):
+        import socket
+        from core import cdp_leger
+        a, b = socket.socketpair()
+        ws = cdp_leger._WebSocket.__new__(cdp_leger._WebSocket)
+        ws._sock, ws._reste = a, b""
+        for texte in ("court", "é" * 200, "x" * 70000):          # 3 tailles de longueur d'en-tete
+            ws.envoyer(texte)
+            donnees = b.recv(200000)
+            while len(donnees) < len(texte.encode()) + 6:
+                donnees += b.recv(200000)
+            masque_longueur = (donnees[1] & 0x7F)
+            debut = 2 + (0 if masque_longueur < 126 else 2 if masque_longueur == 126 else 8)
+            masque = donnees[debut:debut + 4]
+            charge = bytes(c ^ masque[i % 4] for i, c in enumerate(donnees[debut + 4:]))
+            self.assertEqual(charge.decode("utf-8"), texte)
+        a.close(); b.close()
+
+    def test_fonction_ou_expression(self):
+        from core.cdp_leger import _est_fonction
+        self.assertTrue(_est_fonction("() => 1"))
+        self.assertTrue(_est_fonction("(a) => a"))
+        self.assertTrue(_est_fonction("function () { return 1 }"))
+        self.assertFalse(_est_fonction("(() => 1)()"))
+        self.assertFalse(_est_fonction("document.title"))
+
+    def test_repli_cdp_quand_playwright_est_casse(self):
+        from tools import navigateur
+        faux = object()
+        with patch("core.playwright_partage.obtenir", side_effect=ImportError("DLL load failed: _greenlet")), \
+                patch("core.cdp_leger.connecter", return_value=faux), \
+                patch.object(navigateur, "reglage", side_effect=lambda c, d=None: d):
+            self.assertIs(navigateur._tenter_cdp(9222), faux)
+        navigateur._BROWSER = None
+
+    def test_echec_total_donne_les_deux_erreurs(self):
+        from tools import navigateur
+        with patch("core.playwright_partage.obtenir", side_effect=ImportError("greenlet")), \
+                patch("core.cdp_leger.connecter", side_effect=OSError("refuse")), \
+                patch.object(navigateur, "reglage", side_effect=lambda c, d=None: d):
+            self.assertIsNone(navigateur._tenter_cdp(9222))
+        self.assertIn("greenlet", navigateur._ERREUR[0])
+        self.assertIn("CDP", navigateur._ERREUR[0])
+
+
+class ReglagesJournalReelTest(unittest.TestCase):
+    """Secours Gemini coherent, dispense Astra choisie dans config, personnalite par defaut."""
+
+    def test_secours_gemini_actif_par_defaut_si_cle_presente(self):
+        from core import cloud
+        valeurs = {"cloud.secours_actif": None, "gemini.cle": "abc"}
+        with patch.object(cloud, "reglage", side_effect=lambda c, d=None: valeurs.get(c, d)), \
+                patch.dict("os.environ", {}, clear=False):
+            import os
+            os.environ.pop("GEMINI_API_KEY", None)
+            self.assertTrue(cloud.secours_actif())
+            valeurs["gemini.cle"] = ""
+            self.assertFalse(cloud.secours_actif())
+            valeurs["cloud.secours_actif"] = False
+            valeurs["gemini.cle"] = "abc"
+            self.assertFalse(cloud.secours_actif())
+
+    def test_dispense_astra_uniquement_si_choisie_et_seulement_astra(self):
+        from core import registre
+        registre.charger_outils()
+        with patch("core.config.reglage", side_effect=lambda c, d=None: d):
+            self.assertFalse(registre.est_autorise_local("controle_pc_astra"))
+        with patch("core.config.reglage", side_effect=lambda c, d=None: True if c == "astra_pc.sans_confirmation" else d):
+            self.assertTrue(registre.est_autorise_local("controle_pc_astra"))
+            for critique in ("envoyer_mail", "fichier_supprimer", "eteindre_pc", "code_modification_enregistrer"):
+                self.assertFalse(registre.est_autorise_local(critique), critique)
+            self.assertFalse(registre.est_autorise("controle_pc_astra"))      # satellites : inchange
+
+    def test_personnalite_par_defaut_chaleureuse_et_normal_n_est_pas_neutre(self):
+        from core import personnalite
+        self.assertEqual(personnalite.DEFAUT, "jarvis_sarcastique")
+        self.assertIn("blague", personnalite.persona(personnalite.DEFAUT))
+        self.assertNotEqual(personnalite.normaliser("mode normal"), "neutre")

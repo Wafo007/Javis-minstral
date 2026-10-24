@@ -73,3 +73,42 @@ class MonCodeTest(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class ModificationDirecteTest(unittest.TestCase):
+    """code_modifier : sauvegarde, verification de syntaxe AVANT ecriture, protections, restauration."""
+
+    def setUp(self):
+        self.d = Path(tempfile.mkdtemp())
+        (self.d / "tools").mkdir()
+        (self.d / "tools" / "a.py").write_text("x = 1\n", encoding="utf-8")
+        (self.d / "config.yaml").write_text("cle: secret\n", encoding="utf-8")
+        from tools import mon_code
+        self.m = mon_code
+        p = patch.object(mon_code, "RACINE", self.d)
+        p.start()
+        self.addCleanup(p.stop)
+        self.addCleanup(shutil.rmtree, self.d, True)
+
+    def test_modification_sauvegarde_puis_restaure(self):
+        r = self.m.code_modifier("tools/a.py", "x = 2\n")
+        self.assertTrue(r.succes)
+        self.assertEqual((self.d / "tools" / "a.py").read_text(encoding="utf-8"), "x = 2\n")
+        self.assertTrue(list((self.d / ".jarvis_sauvegardes").glob("*/tools/a.py")))
+        self.assertTrue(self.m.code_restaurer("tools/a.py").succes)
+        self.assertEqual((self.d / "tools" / "a.py").read_text(encoding="utf-8"), "x = 1\n")
+
+    def test_code_invalide_n_est_jamais_ecrit(self):
+        r = self.m.code_modifier("tools/a.py", "def casse(:\n")
+        self.assertFalse(r.succes)
+        self.assertEqual((self.d / "tools" / "a.py").read_text(encoding="utf-8"), "x = 1\n")
+
+    def test_secrets_et_verrous_proteges(self):
+        for chemin in ("config.yaml", "core/registre.py", "core/confirmation_vocale.py", "../dehors.py", ".env"):
+            self.assertFalse(self.m.code_modifier(chemin, "x = 1\n").succes, chemin)
+        self.assertEqual((self.d / "config.yaml").read_text(encoding="utf-8"), "cle: secret\n")
+
+    def test_nouveau_fichier_et_niveaux(self):
+        self.assertTrue(self.m.code_modifier("tools/nouveau.py", "y = 1\n").succes)
+        self.assertTrue(registre.get("code_modifier").confirmation)
+        self.assertFalse(registre.get("code_modifier").mcp_expose)
