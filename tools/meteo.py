@@ -61,9 +61,28 @@ def _localiser():
     return _LIEU
 
 
-def _open_meteo(params):
+def _geocoder(ville: str):
+    """Coordonnees d'une ville citee (« Dschang, Cameroun »). None si inconnue (jamais un repli silencieux)."""
+    nom, _, pays = str(ville).partition(",")
+    q = urllib.parse.quote(nom.strip() or str(ville).strip())
+    url = f"https://geocoding-api.open-meteo.com/v1/search?name={q}&count=10&language=fr"
+    with urllib.request.urlopen(url, timeout=6) as reponse:
+        resultats = json.loads(reponse.read().decode("utf-8")).get("results") or []
+    pays = pays.strip().lower()
+    if pays:
+        filtres = [r for r in resultats if pays in str(r.get("country", "")).lower()
+                   or pays == str(r.get("country_code", "")).lower()]
+        resultats = filtres or resultats
+    if not resultats:
+        return None
+    r0 = max(resultats[:5], key=lambda r: r.get("population") or 0) if not pays else resultats[0]
+    return {"lat": r0["latitude"], "lon": r0["longitude"],
+            "ville": r0.get("name", nom) + (f" ({r0['country']})" if r0.get("country") else "")}
+
+
+def _open_meteo(params, lieu=None):
     """Interroge Open-Meteo (gratuit, sans cle). Renvoie le JSON ou leve."""
-    lieu = _localiser()
+    lieu = lieu or _localiser()
     url = (f"https://api.open-meteo.com/v1/forecast?"
            f"latitude={lieu['lat']}&longitude={lieu['lon']}&timezone=auto&{params}")
     with urllib.request.urlopen(url, timeout=6) as reponse:
@@ -73,20 +92,28 @@ def _open_meteo(params):
 @outil(
     nom="meteo",
     mcp_expose=True,
-    description="Donne la meteo actuelle (temperature, ciel) pour la position de "
-                "l'utilisateur.",
+    description="Donne la meteo actuelle (temperature, ciel, vent). Sans argument : la position de "
+                "l'utilisateur. Avec ville (ex. « Dschang, Cameroun ») : cette ville. N'invente JAMAIS une "
+                "meteo : si l'outil echoue, dis-le.",
+    parametres={"type": "object", "properties": {
+        "ville": {"type": "string", "description": "Ville (et pays) si ce n'est pas la position de l'utilisateur."}}},
     lent=True,
     phrase_attente="Je regarde la meteo.",
 )
 def meteo(ville: str = "") -> str:
     """Donne la meteo actuelle du lieu (temperature et ciel)."""
     try:
-        d = _open_meteo("current=temperature_2m,weather_code,wind_speed_10m")
+        cible = None
+        if str(ville or "").strip():
+            cible = _geocoder(ville)
+            if cible is None:
+                return f"Je ne trouve pas la ville « {ville} ». Peux-tu preciser le pays ou l'orthographe ?"
+        d = _open_meteo("current=temperature_2m,weather_code,wind_speed_10m", cible)
         actuel = d["current"]
         temp = round(actuel["temperature_2m"])
         ciel = _CODES_METEO.get(actuel["weather_code"], "temps variable")
         vent = round(actuel.get("wind_speed_10m", 0))
-        lieu = _LIEU.get("ville") or "ta position"
+        lieu = (cible or _LIEU).get("ville") or "ta position"
         return f"A {lieu}, il fait {temp} degres, {ciel}, vent {vent} km/h."
     except Exception as e:
         return f"Meteo indisponible : {e}"

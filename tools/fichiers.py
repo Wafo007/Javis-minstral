@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import logging
 import os
+import re
 import shutil
 import tempfile
 import time
@@ -33,9 +34,41 @@ class ErreurFichier(Exception):
     """Refus ou echec explicable a l'utilisateur."""
 
 
+def _dossiers_usuels():
+    """Bureau, Documents, Telechargements de l'utilisateur (variantes OneDrive / francaises incluses)."""
+    home = Path.home()
+    candidats = {
+        "bureau": [home / "OneDrive" / "Desktop", home / "OneDrive" / "Bureau", home / "Desktop", home / "Bureau"],
+        "documents": [home / "OneDrive" / "Documents", home / "Documents"],
+        "telechargements": [home / "Downloads", home / "Telechargements", home / "Téléchargements"],
+    }
+    return {nom: next((p for p in liste if p.is_dir()), None) for nom, liste in candidats.items()}
+
+
+_ALIAS = {"bureau": "bureau", "desktop": "bureau", "documents": "documents", "mes documents": "documents",
+          "telechargements": "telechargements", "downloads": "telechargements", "telechargement": "telechargements"}
+
+
 def racines():
-    brutes = reglage("fichiers.racines", None) or [str(Path.home() / "Documents" / "Jarvis")]
-    return [Path(os.path.expandvars(str(r))).expanduser() for r in brutes]
+    """Dossiers ou Jarvis peut ecrire : fichiers.racines, sinon Documents/Jarvis + Bureau + Documents +
+    Telechargements (les dossiers personnels courants ; jamais le disque entier, jamais les secrets)."""
+    brutes = reglage("fichiers.racines", None)
+    if brutes:
+        return [Path(os.path.expandvars(str(r))).expanduser() for r in brutes]
+    usuels = [p for p in _dossiers_usuels().values() if p]
+    return [Path.home() / "Documents" / "Jarvis"] + usuels
+
+
+def _appliquer_alias(chemin: str) -> str:
+    """« bureau/notes.txt » ou « Desktop\\x.txt » -> chemin reel du Bureau (utile pour « sur mon bureau »)."""
+    from core.util import sans_accents
+    morceaux = re.split(r"[\\/]", str(chemin).strip(), maxsplit=1)
+    tete = sans_accents(morceaux[0].lower()).strip()
+    cible = _ALIAS.get(tete)
+    reel = _dossiers_usuels().get(cible) if cible else None
+    if reel is None:
+        return chemin
+    return str(reel / morceaux[1]) if len(morceaux) > 1 and morceaux[1] else str(reel)
 
 
 def resoudre(chemin, racines_=None) -> Path:
@@ -43,6 +76,7 @@ def resoudre(chemin, racines_=None) -> Path:
     chemin = str(chemin or "").strip().strip('"')
     if not chemin:
         raise ErreurFichier("Il me faut un chemin.")
+    chemin = _appliquer_alias(chemin)
     if chemin.startswith("\\\\") or chemin.startswith("//"):
         raise ErreurFichier("Je ne touche pas aux partages reseau.")
     liste = [r.resolve() for r in (racines_ or racines())]
@@ -142,7 +176,9 @@ def _annonce_ecriture(args):
     nom="fichier_ecrire",
     description="Cree ou modifie un fichier texte dans un dossier autorise. Ecriture atomique, ancienne "
                 "version sauvegardee en .bak, resultat RELU pour verification. ajouter=true complete le "
-                "fichier au lieu de le remplacer. Pour « cree un fichier notes.txt avec ... ».",
+                "fichier au lieu de le remplacer. Chemins : « bureau/notes.txt » (sur le Bureau), « documents/... », "
+                "« telechargements/... » ; un nom seul va dans Documents/Jarvis. Le contenu doit etre le TEXTE "
+                "COMPLET a ecrire (jamais un fichier vide). Pour « cree un fichier notes.txt avec ... ».",
     parametres={"type": "object", "properties": {
         "chemin": {"type": "string"}, "contenu": {"type": "string"}, "ajouter": {"type": "boolean"}},
         "required": ["chemin", "contenu"]},

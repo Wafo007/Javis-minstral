@@ -1,0 +1,11 @@
+2026-10-31 15:55:06 baseline : failed (547 tests)
+{"step": 1, "action": "update_plan", "target": "", "success": true, "verified": false, "tests": [], "error": null}
+{"step": 2, "action": "search", "target": "def decider_prioritaire", "success": true, "verified": false, "tests": [], "error": null}
+{"step": 3, "action": "read_file", "target": "core/routage_intentions.py", "success": true, "verified": false, "tests": [], "error": null}
+{"step": 4, "action": "replace_in_file", "target": "core/routage_intentions.py", "success": true, "verified": false, "tests": [], "error": null}
+{"step": 5, "action": "write_file", "target": "tests/test_routage_exemple_mission.py", "success": true, "verified": false, "tests": [], "error": null}
+{"step": 6, "action": "write_file", "target": "tests/test_routage_exemple_mission.py", "success": false, "verified": false, "tests": [], "error": "autorisation_requise"}
+{"step": 7, "action": "validate", "target": "", "success": true, "verified": false, "tests": [{"statut": "failed"}], "error": null}
+{"step": 8, "action": "write_file", "target": "tests/test_routage_exemple_mission.py", "success": true, "verified": false, "tests": [], "error": null}
+{"step": 9, "action": "validate", "target": "", "success": true, "verified": false, "tests": [{"statut": "failed"}], "error": null}
+{"step": 10, "action": "finish", "target": "", "success": true, "verified": false, "tests": [], "error": null}

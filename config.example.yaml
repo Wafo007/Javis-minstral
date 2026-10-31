@@ -279,10 +279,18 @@ signal_matin:
   note: ''
   dossier_sortie: output
 securite:
-  toujours:
+  toujours:   # outils N2 executes SANS « tu confirmes ? » (retire une ligne pour retablir la question)
   - cliquer_ecran
   - browser_interact
   - browser_close_tabs
+  - fichier_ecrire
+  - fichier_deplacer
+  - executer_commande
+  - code_modifier
+  - code_restaurer
+  - code_modification_demarrer
+  - code_modification_ecrire
+  - code_modification_annuler
 budget:
   prix:
     gpt-6-astra:
@@ -500,5 +508,26 @@ controle_pc:
 
 # Operations sur fichiers (tools/fichiers.py) : Jarvis ne touche QUE a ces dossiers.
 fichiers:
-  racines:
+  racines:   # dossiers ou Jarvis peut creer/modifier des fichiers (« bureau/x.txt », « documents/x.txt »)
     - ~/Documents/Jarvis
+    - ~/Desktop
+    - ~/OneDrive/Desktop
+    - ~/Documents
+    - ~/Downloads
+
+# Missions autonomes d'auto-amelioration (core/missions.py) : Jarvis travaille seul dans un workspace git isole.
+missions:
+  racine: ''                    # vide = %LOCALAPPDATA%/JarvisMissions (Windows) ; base SQLite, workspaces, rapports
+  duree_defaut_min: 60          # duree si tu n'en donnes pas ; c'est un PLAFOND, la mission peut finir avant
+  duree_max_min: 120            # plafond absolu (jamais depasse, meme si tu demandes plus)
+  max_simultanees: 1
+  fournisseurs: [mistral, gemini]   # gratuits uniquement ; l'ordre = preference, l'autre sert de secours
+  budget_requetes: 400          # appels LLM maximum par mission
+  budget_tokens: 1500000
+  budget_etapes: 120
+  tentatives_par_etape: 3
+  max_essais_api: 6             # essais par appel LLM (429 : Retry-After + attente exponentielle avec gigue)
+  attente_inline_max_s: 120     # au-dela, la mission passe en WAITING_FOR_QUOTA et reprend seule
+  timeout_tests_s: 900
+  delai_calendaire_max_h: 24    # une mission en attente de quota n'attend jamais plus longtemps
+  # commande_tests: ["python", "-m", "pytest", "-q"]   # remplace la commande de tests par defaut

@@ -1,0 +1,102 @@
+[
+ {
+  "etape": 0,
+  "nature": "baseline",
+  "commande": [
+   "/root/.local/share/uv/tools/pytest/bin/python",
+   "-m",
+   "pytest",
+   "-q",
+   "-p",
+   "no:cacheprovider",
+   "--continue-on-collection-errors",
+   "--junitxml=/tmp/claude-0/-home-claude/3b90593d-5993-53b8-bc99-a9b3abd9d5c3/scratchpad/demo/missions/reports/mission_001/junit_baseline_1793458455884.xml",
+   "tests"
+  ],
+  "code_retour": 1,
+  "statut": "failed",
+  "duree_s": 50.17,
+  "resume": "542 passed, 1 skipped, 4 errors, 188 subtests passed in 49.58s",
+  "stdout": "rror: No module named 'fastapi'\n=========================== short test summary info ============================\nERROR tests/test_agent_affichage.py - OSError: PortAudio library not found\nERROR tests/test_poste_distant_route.py\nERROR tests/test_satellite_audio.py - OSError: PortAudio library not found\nERROR tests/test_securite_lot1.py\n542 passed, 1 skipped, 4 errors, 188 subtests passed in 49.58s\n",
+  "stderr": "",
+  "date": "2026-10-31 15:55:06"
+ },
+ {
+  "etape": 7,
+  "nature": "compilation",
+  "commande": [
+   "/root/.local/share/uv/tools/pytest/bin/python",
+   "-m",
+   "py_compile",
+   "core/routage_intentions.py"
+  ],
+  "code_retour": 0,
+  "statut": "passed",
+  "duree_s": 0.2,
+  "resume": "core/routage_intentions.py",
+  "stdout": "",
+  "stderr": "",
+  "date": "2026-10-31 15:55:06"
+ },
+ {
+  "etape": 7,
+  "nature": "compilation",
+  "commande": [
+   "/root/.local/share/uv/tools/pytest/bin/python",
+   "-m",
+   "py_compile",
+   "tests/test_routage_exemple_mission.py"
+  ],
+  "code_retour": 0,
+  "statut": "passed",
+  "duree_s": 0.2,
+  "resume": "tests/test_routage_exemple_mission.py",
+  "stdout": "",
+  "stderr": "",
+  "date": "2026-10-31 15:55:06"
+ },
+ {
+  "etape": 7,
+  "nature": "complet",
+  "commande": [
+   "/root/.local/share/uv/tools/pytest/bin/python",
+   "-m",
+   "pytest",
+   "-q",
+   "-p",
+   "no:cacheprovider",
+   "--continue-on-collection-errors",
+   "--junitxml=/tmp/claude-0/-home-claude/3b90593d-5993-53b8-bc99-a9b3abd9d5c3/scratchpad/demo/missions/reports/mission_001/junit_complet_1793458506739.xml",
+   "tests"
+  ],
+  "code_retour": 1,
+  "statut": "failed",
+  "duree_s": 50.6,
+  "resume": "543 passed, 1 skipped, 4 errors, 188 subtests passed in 50.16s",
+  "stdout": "rror: No module named 'fastapi'\n=========================== short test summary info ============================\nERROR tests/test_agent_affichage.py - OSError: PortAudio library not found\nERROR tests/test_poste_distant_route.py\nERROR tests/test_satellite_audio.py - OSError: PortAudio library not found\nERROR tests/test_securite_lot1.py\n543 passed, 1 skipped, 4 errors, 188 subtests passed in 50.16s\n",
+  "stderr": "",
+  "date": "2026-10-31 15:55:57"
+ },
+ {
+  "etape": 9,
+  "nature": "complet",
+  "commande": [
+   "/root/.local/share/uv/tools/pytest/bin/python",
+   "-m",
+   "pytest",
+   "-q",
+   "-p",
+   "no:cacheprovider",
+   "--continue-on-collection-errors",
+   "--junitxml=/tmp/claude-0/-home-claude/3b90593d-5993-53b8-bc99-a9b3abd9d5c3/scratchpad/demo/missions/reports/mission_001/junit_complet_1793458557414.xml",
+   "tests"
+  ],
+  "code_retour": 1,
+  "statut": "failed",
+  "duree_s": 50.58,
+  "resume": "543 passed, 1 skipped, 4 errors, 188 subtests passed in 50.06s",
+  "stdout": "rror: No module named 'fastapi'\n=========================== short test summary info ============================\nERROR tests/test_agent_affichage.py - OSError: PortAudio library not found\nERROR tests/test_poste_distant_route.py\nERROR tests/test_satellite_audio.py - OSError: PortAudio library not found\nERROR tests/test_securite_lot1.py\n543 passed, 1 skipped, 4 errors, 188 subtests passed in 50.06s\n",
+  "stderr": "",
+  "date": "2026-10-31 15:56:48"
+ }
+]

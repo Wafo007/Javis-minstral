@@ -79,6 +79,13 @@ _ACTIONS_CONTENU = {
     "utilise", "utiliser", "imite", "imiter", "apprends", "apprendre", "connais",
     "connaitre", "veux", "voudrais", "aimerais",
 }
+# Un mot de cette liste signale une action sur le PC (ecran, fichier, code, navigateur...) : jamais une
+# tache de fond pour Hermes, meme si la phrase contient « video » ou « youtube ».
+_MOTS_PC = {
+    "ecran", "capture", "fichier", "fichiers", "dossier", "dossiers", "code", "onglet", "onglets", "navigateur",
+    "chrome", "page", "visual", "studio", "tools", "bureau", "application", "fenetre", "souris", "clique",
+    "clic", "bloc", "terminal", "commande", "commandes", "pc", "ordinateur", "menu", "demarrer",
+}
 _ACTIONS_PHYSIQUES = {
     "allume", "allumer", "eteins", "eteindre", "ouvre", "ouvrir", "ferme",
     "fermer", "augmente", "baisse",
@@ -102,6 +109,8 @@ def extraire_tache_contenu(phrase: str):
     mots = set(normalise.split())
     if not original or not (mots & _OBJETS_CONTENU):
         return None
+    if mots & _MOTS_PC:
+        return None              # parle de l'ecran, d'un fichier, du code... : Jarvis agit lui-meme
     try:
         from core.routage_intentions import _est_commande_lecture_web
         if _est_commande_lecture_web(normalise):

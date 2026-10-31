@@ -420,52 +420,39 @@ def _decider_action_gemini(
             "Gemini Vision indisponible : clé absente."
         )
 
-    cible = str(
-        reglage(
-            "gemini.modele_vision",
-            "gemini-2.5-flash"
-        )
-    )
+    principal = str(reglage("gemini.modele_vision", "gemini-2.5-flash"))
+    secours = reglage("gemini.modeles_vision_secours", ["gemini-2.5-flash-lite", "gemini-2.0-flash"]) or []
+    modeles = [principal] + [m for m in secours if m and m != principal]
 
-    rep = client.chat.completions.create(
-        model=cible,
-        messages=[
-            {
-                "role": "system",
-                "content": systeme,
-            },
-            {
-                "role": "user",
-                "content": [
-                    {
-                        "type": "text",
-                        "text": texte,
-                    },
-                    {
-                        "type": "image_url",
-                        "image_url": {
-                            "url": (
-                                "data:image/jpeg;base64,"
-                                + image_b64
-                            )
-                        },
-                    },
-                ],
-            },
-        ],
-        tools=[
-            {
-                "type": "function",
-                "function": {
-                    "name": nom_outil,
-                    "description": description,
-                    "parameters": schema,
-                },
-            }
-        ],
-        tool_choice="required",
-        max_tokens=1200,
-    )
+    messages = [
+        {"role": "system", "content": systeme},
+        {"role": "user", "content": [
+            {"type": "text", "text": texte},
+            {"type": "image_url", "image_url": {"url": "data:image/jpeg;base64," + image_b64}},
+        ]},
+    ]
+    outils = [{"type": "function", "function": {
+        "name": nom_outil, "description": description, "parameters": schema}}]
+
+    # 503 « model is currently experiencing high demand » : panne passagere, pas un refus. On retente
+    # avec une courte attente, puis avec les modeles de secours, avant d'abandonner.
+    derniere, rep, cible = None, None, principal
+    for cible in modeles:
+        for essai in range(3):
+            try:
+                rep = client.chat.completions.create(
+                    model=cible, messages=messages, tools=outils,
+                    tool_choice="required", max_tokens=1200)
+                break
+            except Exception as exc:
+                derniere = exc
+                if getattr(exc, "status_code", None) not in (429, 500, 502, 503, 504):
+                    raise
+                time.sleep((1.5, 4.0)[essai] if essai < 2 else 0)
+        if rep is not None:
+            break
+    if rep is None:
+        raise derniere
 
     enregistrer_usage(
         rep,

@@ -1,5 +1,15 @@
 # Changelog
 
+## Missions autonomes d'auto-amelioration (octobre 2026)
+
+- Nouveau moteur de missions (`core/missions.py`, `core/mission_agent.py`, `core/fournisseurs_mission.py`, `core/mission_rapport.py`,
+  `scripts/mission_worker.py`, `tools/missions.py`) : « ameliore ton routage, tu disposes de 60 minutes » -> worker detache, workspace
+  `git worktree` isole, vrais tests, comparaison a la baseline, rapport en 17 sections, notification. Voir `docs/MISSIONS_AUTONOMES.md`.
+- `core/auto_modification.py` etendu (worktree, checkpoint, integration sur autorisation) ; modules du moteur proteges contre l'auto-modification.
+- `core/registre.py` : `mission_integrer` (N3). `core/routage_intentions.py` : `router_mission` en tete des routes deterministes.
+- `jarvis14.py` : reprise des missions interrompues au demarrage + annonce vocale de fin. `config.example.yaml` : bloc `missions:`.
+- Tests : `tests/test_missions.py` (scenarios A-H).
+
 ## Corrections du journal reel (octobre 2026)
 
 - `core/cdp_leger.py` : pilotage de Chrome par CDP sans Playwright (ni greenlet, ni Visual C++) ; `navigateur._tenter_cdp` y bascule seul.

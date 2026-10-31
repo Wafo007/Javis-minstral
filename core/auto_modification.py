@@ -29,6 +29,9 @@ LOG = logging.getLogger("jarvis.auto_modification")
 PROTEGES_EXACTS = {
     "config.yaml", ".env", "core/auto_modification.py", "scripts/auto_modif.py",
     "core/registre.py", "core/confidentialite.py", "core/confirmation_vocale.py",
+    # Le moteur de missions autonomes ne doit pas pouvoir se reecrire lui-meme (ni ses garde-fous).
+    "core/missions.py", "core/mission_agent.py", "core/fournisseurs_mission.py",
+    "scripts/mission_worker.py", "tools/missions.py",
 }
 PROTEGES_PREFIXES = (".git/", ".claude/", "notes/", "logs/", "memoire", "finances/", "secrets/")
 COMMANDE_TESTS = [sys.executable, "-m", "pytest", "-q", "-x", "-p", "no:cacheprovider", "tests"]
@@ -241,3 +244,144 @@ def redemarrage_supervise(commande, delai=10.0, sante=None):
                 proc.wait(5)
             except subprocess.TimeoutExpired:
                 proc.kill()
+
+
+# ----------------------------------------------------------------------------------------------
+# Espace de travail isole pour les missions autonomes (git worktree).
+# La version stable n'est jamais touchee : la mission travaille dans un worktree sur sa propre branche ;
+# l'integration dans la version stable est une etape separee, qui exige une autorisation explicite.
+# ----------------------------------------------------------------------------------------------
+_SANS_CACHE = ["--", ".", ":(exclude,glob)**/__pycache__/**", ":(exclude,glob)**/*.pyc", ":(exclude,glob)**/.pytest_cache/**"]
+_IDENT_GIT = ["-c", "user.name=Jarvis mission", "-c", "user.email=jarvis-mission@localhost",
+              "-c", "commit.gpgsign=false"]
+
+
+def _est_secret(rel: str) -> bool:
+    """Secrets et donnees personnelles : jamais recopies dans un workspace (le code protege, lui, l'est)."""
+    bas = rel.lower()
+    return (bas in {"config.yaml", ".env"} or bas.startswith(PROTEGES_PREFIXES)
+            or any(m in bas for m in ("secret", "credential", ".env", "token")))
+
+
+def _fichiers_modifies_non_commites(depot):
+    """Fichiers suivis modifies/supprimes + fichiers nouveaux non ignores (etat reel du dossier de travail)."""
+    sortie = _git(depot, "status", "--porcelain", "-z", "--untracked-files=all").stdout
+    modifies, supprimes = [], []
+    entrees = [e for e in sortie.split("\0") if e]
+    i = 0
+    while i < len(entrees):
+        e = entrees[i]
+        code, chemin = e[:2], e[3:]
+        if code[0] in "RC":                      # renommage : l'entree suivante est l'ancien nom
+            i += 1
+        if "D" in code:
+            supprimes.append(chemin)
+        else:
+            modifies.append(chemin)
+        i += 1
+    return modifies, supprimes
+
+
+def creer_workspace(depot, workspace, branche: str) -> dict:
+    """Cree un worktree isole sur une nouvelle branche, a partir de l'etat REEL du projet.
+
+    Les modifications non commitees du projet (le travail en cours de l'utilisatrice) sont recopiees puis
+    commitees comme « baseline » dans le worktree : la mission part de ce que Jarvis est vraiment,
+    et son diff ne contient que ses propres changements. Les fichiers proteges (config.yaml, secrets...)
+    ne sont jamais recopies. Le dossier du projet n'est pas modifie.
+    """
+    depot, workspace = Path(depot).resolve(), Path(workspace).resolve()
+    if workspace.exists() and any(workspace.iterdir()):
+        raise ErreurAutoModif(f"Le workspace existe deja : {workspace}")
+    try:
+        workspace.relative_to(depot)
+    except ValueError:
+        pass
+    else:
+        raise ErreurAutoModif("Le workspace doit etre en dehors du dossier du projet.")
+    base_initiale = _git(depot, "rev-parse", "HEAD").stdout.strip()
+    workspace.parent.mkdir(parents=True, exist_ok=True)
+    _git(depot, "worktree", "add", "-q", "-b", branche, str(workspace), base_initiale)
+    modifies, supprimes = _fichiers_modifies_non_commites(depot)
+    copies = []
+    for rel in modifies:
+        if _est_secret(rel):
+            continue
+        src = depot / rel
+        if not src.is_file():
+            continue
+        dst = workspace / rel
+        dst.parent.mkdir(parents=True, exist_ok=True)
+        dst.write_bytes(src.read_bytes())
+        copies.append(rel)
+    for rel in supprimes:
+        try:
+            (workspace / rel).unlink()
+        except OSError:
+            pass
+    _git(workspace, "add", "-A", *_SANS_CACHE)
+    if _git(workspace, "status", "--porcelain").stdout.strip():
+        _git(workspace, *_IDENT_GIT, "commit", "-q", "-m", "baseline : etat reel du projet au lancement de la mission")
+    base = _git(workspace, "rev-parse", "HEAD").stdout.strip()
+    LOG.info("workspace %s cree (branche %s, base %s, %d fichiers recopies)", workspace, branche, base[:8], len(copies))
+    return {"workspace": str(workspace), "branche": branche, "base": base, "base_depot": base_initiale,
+            "fichiers_recopies": copies}
+
+
+def supprimer_workspace(depot, workspace, branche: str = "", supprimer_branche: bool = False):
+    """Retire le worktree (la branche est conservee sauf demande explicite)."""
+    _git(depot, "worktree", "remove", "--force", str(workspace), check=False)
+    _git(depot, "worktree", "prune", check=False)
+    if branche and supprimer_branche:
+        _git(depot, "branch", "-D", branche, check=False)
+
+
+def valider_checkpoint(workspace, message: str) -> str:
+    """Commit de tout ce qui est dans le workspace ; renvoie le sha (ou celui de HEAD s'il n'y a rien de neuf)."""
+    _git(workspace, "add", "-A", *_SANS_CACHE)
+    if _git(workspace, "status", "--porcelain").stdout.strip():
+        _git(workspace, *_IDENT_GIT, "commit", "-q", "-m", message)
+    return _git(workspace, "rev-parse", "HEAD").stdout.strip()
+
+
+def revenir_au_checkpoint(workspace, sha: str) -> str:
+    """Remet le workspace sur `sha` (modifications non verifiees ecartees) ; renvoie le diff ecarte."""
+    _git(workspace, "add", "-A", *_SANS_CACHE)
+    ecarte = _git(workspace, "diff", "--cached", sha).stdout
+    _git(workspace, "reset", "-q", "--hard", sha)
+    _git(workspace, "clean", "-fdq")
+    return ecarte
+
+
+def diff_workspace(workspace, base: str) -> str:
+    _git(workspace, "add", "-N", ".", check=False)
+    return _git(workspace, "diff", base).stdout
+
+
+def integrer(depot, workspace, base: str, autorise: bool = False) -> dict:
+    """Applique le diff verifie de la mission au PROJET STABLE (sans commit) -- uniquement si `autorise`.
+
+    Sans autorisation explicite, leve ErreurAutoModif et ne touche a rien. Le diff est controle
+    (`git apply --check`) avant toute ecriture ; l'utilisatrice commite elle-meme ensuite.
+    """
+    if autorise is not True:
+        raise ErreurAutoModif("Integration dans la version stable refusee : elle exige une autorisation explicite.")
+    patch = _git(workspace, "diff", base, "HEAD").stdout
+    if not patch.strip():
+        raise ErreurAutoModif("Aucune modification verifiee a integrer.")
+    for ligne in patch.splitlines():
+        if ligne.startswith("diff --git"):
+            rel = ligne.split(" b/", 1)[-1].strip()
+            if not chemin_autorise(depot, rel):
+                raise ErreurAutoModif(f"Le diff touche un fichier protege (« {rel} ») : integration refusee.")
+    r = subprocess.run(["git", "apply", "--check", "-"], cwd=str(depot), input=patch, capture_output=True,
+                       text=True, encoding="utf-8", errors="replace", timeout=120)
+    if r.returncode != 0:
+        raise ErreurAutoModif("Le diff ne s'applique plus proprement (le projet a change depuis la mission) : "
+                              + (r.stderr or "").strip()[:300])
+    r = subprocess.run(["git", "apply", "-"], cwd=str(depot), input=patch, capture_output=True, text=True,
+                       encoding="utf-8", errors="replace", timeout=120)
+    if r.returncode != 0:
+        raise ErreurAutoModif("git apply a echoue : " + (r.stderr or "").strip()[:300])
+    fichiers = [l.split(" b/", 1)[-1].strip() for l in patch.splitlines() if l.startswith("diff --git")]
+    return {"fichiers": fichiers}

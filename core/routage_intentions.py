@@ -70,6 +70,7 @@ def decider_prioritaire(phrase: str, piece: str = "") -> Decision | None:
         return Decision("vision", tache=phrase)
 
     for module, fonction in (
+        ("tools.missions", "router_mission"),
         ("tools.youtube", "router_youtube"),
         ("tools.alexa", "router_commande"),
         ("tools.media", "router_commande_media"),
@@ -148,6 +149,7 @@ _DOMAINES = (
       "application", "logiciel", "dossier", "telechargements", "parametre"),
      {"ecran", "souris", "apps", "systeme", "astra_pc", "gestes", "stats", "controle_pc", "fichiers"}),
     (("fichier", "fichiers", "document texte", "corbeille"), {"fichiers", "apps", "controle_pc"}),
+    (("mission", "auto amelioration", "campagne d auto", "ton rapport"), {"missions"}),
     (("code source", "ton code", "tes fichiers de code", "te modifier", "modifie ton", "corrige ton code",
       "ameliore ton code", "auto modification"),
      {"mon_code", "fichiers", "controle_pc"}),
@@ -158,6 +160,8 @@ _DOMAINES = (
       " tape ", " taper ", " ecris ", " ecrire ", " saisis ", " saisir ", " enregistre ",
       " sauvegarde ", " passe sur ", " bascule sur ", " appuie ", " appuyer ", " ctrl ", " raccourci "),
      {"ecran", "souris", "apps", "systeme", "astra_pc", "controle_pc"}),
+    (("en ligne", "recherche", "recherches", "renseigne", "renseigner", "actualite", "actualites", "sur google",
+      "cherche des informations", "documente"), {"web", "navigateur", "fichiers"}),
     (("chrome", "navigateur", "onglet", "site", "page web", "internet",
       "cherche sur le web", "recherche web", "reserve", "reservation"),
      {"navigateur", "web", "reservation"}),

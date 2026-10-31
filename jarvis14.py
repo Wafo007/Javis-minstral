@@ -125,6 +125,17 @@ SYSTEME_BASE = (
     "(sauvegarde automatique, effet au redemarrage), code_tester, code_restaurer. Ne dis "
     "jamais que c'est interdit ni que ton code est sur un serveur : il est sur le PC de "
     "l'utilisateur. Pour lancer une video YouTube, utilise youtube_lire (aucun clic). "
+    "DEMANDE EN PLUSIEURS ETAPES (« fais des recherches, cree un fichier sur le bureau et ouvre-le ») : "
+    "enchaine les outils JUSQU'A CE QUE TOUT soit fait (chercher_web pour rechercher, fichier_ecrire avec "
+    "le texte COMPLET, jamais un fichier vide, puis ouverture), verifie avec un outil de lecture, et "
+    "termine par un bilan precis : ce qui est fait, ou, et ce qui reste. Ne dis jamais « c'est fait » "
+    "seul. Pour tout ce qui est « sur le PC » sans outil dedie (installer, lancer un script, git, lister, "
+    "deplacer), utilise executer_commande (ou executer_commande_risquee pour supprimer/installer/arreter) : "
+    "tu lances la commande toi-meme et tu lis le resultat, au lieu de taper dans un terminal. "
+    "Fichiers : chemins « bureau/x.txt », « documents/x.txt ». Meteo d'une autre ville : meteo(ville=...). "
+    "N'invente JAMAIS une donnee (meteo, contenu d'un fichier, ce qu'il y a a l'ecran, capacites que tu n'as "
+    "pas) : appelle l'outil, sinon dis que tu ne sais pas. Pas de remplissage ni de fausses metaphores : de "
+    "l'humour bref, et du fond. "
     "Pour lire un titre ou une playlist Spotify, utilise lire_spotify ; pour une "
     "série ou un film Netflix précis, utilise lire_netflix ; pour pause, suivant "
     "ou précédent, utilise controler_media. Ces actions ne nécessitent pas Astra. "
@@ -699,6 +710,15 @@ def _repondre_route_prioritaire_commune(historique):
                 dire(phrase, interruptible=False)
             return SENTINEL_CONFIRM
         texte = str(resultats[0]["content"] if resultats else "C'est fait.")
+        try:
+            from core.resultat import est_echec
+            if est_echec(texte):
+                # Journal reel : « ouvre mon navigateur, base YouTube... » -> le routage direct echouait et
+                # la phrase d'echec etait lue telle quelle. Le LLM, lui, sait improviser avec tous les outils.
+                LOG.info("route directe %s en echec (%s) : on passe la main au LLM", nom_outil, texte[:120])
+                return None
+        except Exception:
+            LOG.exception("repli LLM apres echec de route")
 
     historique.append({"role": "assistant", "content": texte})
     _hud("outil", nom_outil, question[:60])
@@ -1392,6 +1412,32 @@ def _installer_raccourci_micro():
         LOG.exception("micro: raccourci clavier")
 
 
+def _demarrer_suivi_missions():
+    """Missions autonomes : relance celles dont le processus a disparu (plantage, redemarrage de Windows) et annonce
+    a voix haute la fin des missions. Tout echec est journalise sans jamais gener le demarrage de Jarvis."""
+    try:
+        from core import missions
+        store = missions.MissionStore()
+        relancees = missions.reprendre_interrompues(store)
+        if relancees:
+            print(f"Missions reprises apres interruption : {', '.join(relancees)}")
+    except Exception:
+        LOG.exception("missions: reprise au demarrage")
+        return
+
+    def _boucle():
+        while True:
+            time.sleep(30)
+            try:
+                for mid, message in missions.messages_a_annoncer(store):
+                    dire(message)
+                    missions.marquer_annoncee(store, mid)
+            except Exception:
+                LOG.exception("missions: annonce")
+
+    threading.Thread(target=_boucle, daemon=True, name="suivi-missions").start()
+
+
 def main():
     print("Chargement des modeles...")
 
@@ -1600,6 +1646,7 @@ def main():
     except Exception:
         LOG.exception("modes/voix: initialisation")
 
+    _demarrer_suivi_missions()
     print('\nPret. Dites "Hey Jarvis". Ctrl+C pour quitter.\n')
     print('Vous pouvez le couper en redisant "Hey Jarvis" pendant qu\'il parle.\n')
 

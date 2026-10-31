@@ -1,0 +1,26 @@
+diff --git a/core/routage_intentions.py b/core/routage_intentions.py
+index 47b6192..a9c7b07 100644
+--- a/core/routage_intentions.py
++++ b/core/routage_intentions.py
+@@ -26,7 +26,7 @@ class Decision:
+ 
+ 
+ def decider_prioritaire(phrase: str, piece: str = "") -> Decision | None:
+-    """Renvoie une route déterministe commune au PC et aux satellites."""
++    """Renvoie une route déterministe commune au PC et aux satellites (None si la phrase est vide ou inconnue)."""
+     phrase = str(phrase or "").strip()
+     if not phrase:
+         return None
+diff --git a/tests/test_routage_exemple_mission.py b/tests/test_routage_exemple_mission.py
+new file mode 100644
+index 0000000..d8791ac
+--- /dev/null
++++ b/tests/test_routage_exemple_mission.py
+@@ -0,0 +1,7 @@
++"""Test ajoute par la mission : la phrase vide ne declenche aucune route prioritaire."""
++from core.routage_intentions import decider_prioritaire
++
++
++def test_phrase_vide_sans_route():
++    assert decider_prioritaire("") is None
++    assert decider_prioritaire("   ") is None

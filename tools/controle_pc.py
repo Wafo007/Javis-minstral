@@ -688,7 +688,8 @@ def taper_texte(texte: str, entree: bool = False, fenetre: str = "") -> str:
         except Exception:
             cible = None
     if cible and str(cible[2]).lower() in _TERMINAUX and not reglage("controle_pc.autoriser_terminal", False):
-        return ResultatOutil("La fenêtre active est un terminal : je ne tape pas de texte à cet endroit.",
+        return ResultatOutil("La fenêtre active est un terminal : je n'y tape pas de texte. Pour lancer une commande, utilise "
+                             "executer_commande (je la lance moi-même et je lis le résultat).",
                              succes=False, erreur="terminal")
     try:
         _ecrire(texte)

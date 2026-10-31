@@ -116,7 +116,9 @@ _NON_LOCAUX = {
     "lire_netflix",
     "controle_pc_astra",
     "code_modification_demarrer", "code_modification_ecrire", "code_modification_enregistrer",
-    "code_modifier", "code_restaurer", "code_tester",
+    "code_modifier", "code_restaurer", "code_tester", "executer_commande", "executer_commande_risquee",
+    "mission_demarrer", "mission_statut", "mission_pause", "mission_reprendre", "mission_annuler",
+    "mission_urgence", "mission_lister", "mission_rapport", "mission_integrer",
     "call_with_message", "call_and_book", "cout_appels",
     "instagram_resume", "rafraichir_instagram",
     "get_mentions_summary", "get_channel_summary",
@@ -172,6 +174,10 @@ _N3 = frozenset({
     "fichier_supprimer",
     # Enregistrer une modification de son propre code : accord vocal a chaque fois.
     "code_modification_enregistrer",
+    # Commande systeme qui supprime/installe/arrete : accord vocal a chaque fois, jamais « toujours ».
+    "executer_commande_risquee",
+    # Integrer le candidat d'une mission dans la version stable : accord vocal a chaque fois.
+    "mission_integrer",
 })
 
 

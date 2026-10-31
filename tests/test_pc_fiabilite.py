@@ -7,6 +7,7 @@ comportement reel de Windows. La validation reelle est dans scripts/valider_wind
 from __future__ import annotations
 
 import ctypes
+import os
 import types
 import unittest
 from unittest.mock import MagicMock, patch
@@ -642,3 +643,74 @@ class ReglagesJournalReelTest(unittest.TestCase):
         self.assertEqual(personnalite.DEFAUT, "jarvis_sarcastique")
         self.assertIn("blague", personnalite.persona(personnalite.DEFAUT))
         self.assertNotEqual(personnalite.normaliser("mode normal"), "neutre")
+
+
+class JournalReelSuiteTest(unittest.TestCase):
+    """Retries Gemini 503, recherche en ligne, bureau, repli LLM, meteo d'une ville."""
+
+    def test_gemini_503_est_retente_puis_bascule_sur_un_autre_modele(self):
+        from core import cloud
+
+        class Erreur(Exception):
+            status_code = 503
+
+        class Rep:
+            class choices:      # noqa: N801
+                class _M:
+                    class message:   # noqa: N801
+                        tool_calls = [types.SimpleNamespace(function=types.SimpleNamespace(arguments='{"action":"fini"}'))]
+                choices = [_M]
+        Rep.choices = [Rep.choices._M]
+        appels = []
+
+        class Completions:
+            def create(self, model, **_):
+                appels.append(model)
+                if model == "gemini-2.5-flash":
+                    raise Erreur("This model is currently experiencing high demand")
+                return Rep
+
+        client = types.SimpleNamespace(chat=types.SimpleNamespace(completions=Completions()))
+        with patch.object(cloud, "client_gemini", return_value=client), patch.object(cloud.time, "sleep"), \
+                patch.object(cloud, "enregistrer_usage"), \
+                patch.object(cloud, "reglage", side_effect=lambda c, d=None: d):
+            action = cloud._decider_action_gemini("sys", "txt", "AAAA", {"type": "object"})
+        self.assertEqual(action, {"action": "fini"})
+        self.assertEqual(appels.count("gemini-2.5-flash"), 3)          # 3 essais sur le modele principal
+        self.assertEqual(appels[-1], "gemini-2.5-flash-lite")           # puis le modele de secours
+
+    def test_recherche_en_ligne_offre_les_outils_web_et_fichiers(self):
+        from core.routage_intentions import modules_pour_phrase
+        m = modules_pour_phrase("Va en ligne, fais des recherches sur les commandes Linux et crée un fichier texte sur mon bureau")
+        self.assertTrue({"web", "fichiers"} <= m)
+
+    def test_bureau_est_une_racine_et_un_alias(self):
+        import tempfile
+        from pathlib import Path
+        from tools import fichiers
+        with tempfile.TemporaryDirectory() as d:
+            bureau = Path(d) / "Desktop"
+            bureau.mkdir()
+            with patch.object(fichiers, "_dossiers_usuels",
+                              return_value={"bureau": bureau, "documents": None, "telechargements": None}), \
+                    patch.object(fichiers, "reglage", side_effect=lambda c, d=None: d), \
+                    patch.object(fichiers.Path, "home", return_value=Path(d)):
+                cible = fichiers.resoudre("bureau/notes.txt")
+                self.assertEqual(cible, (bureau / "notes.txt").resolve())
+                with self.assertRaises(fichiers.ErreurFichier):
+                    fichiers.resoudre("C:\\Windows\\System32\\x.txt" if os.name == "nt" else "/etc/passwd")
+
+    def test_meteo_ville_inconnue_est_dite_et_non_remplacee_par_paris(self):
+        from tools import meteo
+        with patch.object(meteo, "_geocoder", return_value=None):
+            self.assertIn("Je ne trouve pas la ville", meteo.meteo("Zzzzville"))
+        with patch.object(meteo, "_geocoder", return_value={"lat": 5.4, "lon": 10.0, "ville": "Dschang (Cameroun)"}), \
+                patch.object(meteo, "_open_meteo", return_value={"current": {
+                    "temperature_2m": 21.4, "weather_code": 2, "wind_speed_10m": 6}}):
+            self.assertIn("Dschang", meteo.meteo("Dschang, Cameroun"))
+
+    def test_hermes_n_attrape_plus_les_commandes_pc(self):
+        from tools.deleguer_a_hermes import extraire_tache_contenu
+        self.assertIsNone(extraire_tache_contenu("Visualise mon écran et résume la page YouTube ouverte"))
+        self.assertIsNone(extraire_tache_contenu("Lis ton fichier tools/youtube.py et analyse-le"))
+        self.assertIsNotNone(extraire_tache_contenu("Écris un script et trois accroches pour ma vidéo YouTube"))
