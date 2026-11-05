@@ -1,5 +1,11 @@
 # Changelog
 
+## Controle d'un telephone Android par ADB (novembre 2026)
+
+- `core/mobile_adb.py` + `tools/mobile.py` : lancer une app, statut, media, touches, defilement, notification, lien (N1) ; toucher/taper,
+  lire/capturer l'ecran, notifications, position, photo (N2). Routage « ... sur mon telephone » avant l'ouverture d'app du PC.
+- `scripts/mobile_appairer.py`, bloc `mobile:` de `config.example.yaml`, guide `docs/mobile_android.md`, tests `tests/test_mobile.py`.
+
 ## Missions autonomes d'auto-amelioration (octobre 2026)
 
 - Nouveau moteur de missions (`core/missions.py`, `core/mission_agent.py`, `core/fournisseurs_mission.py`, `core/mission_rapport.py`,

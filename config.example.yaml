@@ -531,3 +531,10 @@ missions:
   timeout_tests_s: 900
   delai_calendaire_max_h: 24    # une mission en attente de quota n'attend jamais plus longtemps
   # commande_tests: ["python", "-m", "pytest", "-q"]   # remplace la commande de tests par defaut
+
+# Telephone Android pilote depuis le PC par ADB (core/mobile_adb.py, docs/mobile_android.md). Aucune app a installer.
+mobile:
+  adb_chemin: ''           # vide = « adb » du PATH ; sinon chemin complet de adb.exe (platform-tools)
+  appareil: ''             # « ip:port » de connexion du debogage sans fil (vide = le seul appareil branche)
+  apps:                    # alias perso : nom dit a voix haute -> nom de paquet Android
+    # ma banque: fr.exemple.banque
