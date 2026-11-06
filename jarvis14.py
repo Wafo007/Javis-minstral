@@ -287,6 +287,7 @@ def bip(frequence=880, duree=0.12):
 
 _PROCESSUS_PAROLE = None
 _INTERRUPTION = threading.Event()
+_VERROU_PAROLE = threading.RLock()   # une seule synthese/lecture a la fois (jamais deux voix superposees)
 _PARLE = threading.Event()   # vrai UNIQUEMENT pendant que Jarvis joue de l'audio :
                              # c'est la seule fenetre ou on ecoute une interruption.
 _CAPTURE_MUSIQUE = threading.Event()   # vrai pendant la capture Shazam : la boucle de
@@ -358,6 +359,11 @@ def dire(texte, interruptible=True, cache=False):
         return                                          # la reponse s'affiche, pas de TTS.
     if _INTERRUPTION.is_set():
         return
+    with _VERROU_PAROLE:
+        _dire_verrouille(texte, interruptible, cache)
+
+
+def _dire_verrouille(texte, interruptible, cache):
     _suivre_mode()
     # Version VOIX du texte (sans Markdown/emoji/URL, unites en toutes lettres). L'affichage
     # (HUD, overlay, historique) garde le texte complet : seule la parole est nettoyee.
@@ -380,6 +386,38 @@ def dire(texte, interruptible=True, cache=False):
             _dire_sapi(texte)
     finally:
         _PARLE.clear()    # fin de la parole : plus d'interruption possible
+
+
+def _ghost_apres_reponse():
+    """GHOST PROTOCOL : finalise une desactivation APRES la phrase d'adieu (voix Ghost jusqu'au bout)."""
+    try:
+        from modes.ghost_protocol import controleur
+        controleur().finaliser_sortie()
+    except Exception:
+        LOG.exception("finalisation Ghost")
+
+
+def _ghost_consigne():
+    try:
+        from modes.ghost_protocol import personality
+        return personality.consigne(True) if _ghost_actif() else ""
+    except Exception:
+        return ""
+
+
+def _ghost_actif():
+    try:
+        from modes.ghost_protocol.state_manager import ETAT
+        return bool(ETAT.actif)
+    except Exception:
+        return False
+
+
+try:                                       # GHOST PROTOCOL : la parole de fin de scenario passe par dire()
+    from modes.ghost_protocol import controleur as _ghost_controleur
+    _ghost_controleur().definir_parleur(dire)
+except Exception:
+    pass
 
 
 def _dire_sapi(texte):
@@ -747,6 +785,7 @@ def repondre(historique):
         historique.append({"role": "assistant", "content": locale})
         if not _INTERRUPTION.is_set():
             dire(locale)
+        _ghost_apres_reponse()
         return locale
 
     prioritaire = _repondre_route_prioritaire_commune(historique)
@@ -806,7 +845,8 @@ def repondre(historique):
         try:
             debut_llm = time.monotonic()
             reponse = fournisseur.repondre(
-                SYSTEME_COURANT + "\n\n" + modes_usage.consigne_systeme() + " " + contexte.consigne(),
+                SYSTEME_COURANT + "\n\n" + modes_usage.consigne_systeme() + " " + contexte.consigne()
+                + (("\n\n" + _ghost_consigne()) if _ghost_actif() else ""),
                 historique,
                 registre.schemas_api(
                     local_seulement=(fournisseur.nom == "Ollama"),

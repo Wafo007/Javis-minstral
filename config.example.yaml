@@ -538,3 +538,17 @@ mobile:
   appareil: ''             # « ip:port » de connexion du debogage sans fil (vide = le seul appareil branche)
   apps:                    # alias perso : nom dit a voix haute -> nom de paquet Android
     # ma banque: fr.exemple.banque
+
+ghost_protocol:            # mode tactique cinematographique (SIMULATION) ; voir docs/GHOST_PROTOCOL.md
+  vitesse: 1.0             # 1 = rythme normal des animations
+  elevenlabs:              # reglages propres a la voix Ghost (la cle va dans .env ou ELEVENLABS_API_KEY, pas ici)
+    cle: ''                # laisser vide : preferer la variable d'environnement ELEVENLABS_API_KEY
+    voix: ''               # ou ELEVENLABS_VOICE_ID
+    modele: eleven_flash_v2_5
+    langue: fr
+  voix:
+    max_caracteres: 220    # longueur maximale parlee par reponse (economie de quota)
+    quota_mensuel: 0       # plafond LOCAL en caracteres/mois (0 = aucun) ; ne remplace pas le quota reel du compte
+    timeout_s: 10
+    cache_mo: 50
+

@@ -77,6 +77,28 @@ _HISTORIQUE = deque(maxlen=40)
 
 _SERVEUR = None
 
+# --- GHOST PROTOCOL : memoire de rejeu pour les clients qui se (re)connectent en cours de mode.
+_GHOST = {"etat": None, "mission": None, "voix": None, "rapport": None, "script": None}
+_GHOST_TERM = deque(maxlen=120)
+
+
+def ghost(evenement):
+    """Relaie un evenement GHOST PROTOCOL (ghost, ghost_term, ghost_mission, ghost_voix, ghost_rapport, ghost_script)."""
+    if not isinstance(evenement, dict):
+        return
+    t = evenement.get("t")
+    if t == "ghost":
+        _GHOST["etat"] = evenement
+        if not evenement.get("actif"):          # mode quitte : on n'oublie rien d'utile pour le prochain client
+            for k in ("mission", "voix", "rapport", "script"):
+                _GHOST[k] = None
+            _GHOST_TERM.clear()
+    elif t == "ghost_term":
+        _GHOST_TERM.append(evenement)
+    elif t in ("ghost_mission", "ghost_voix", "ghost_rapport", "ghost_script"):
+        _GHOST[t.split("_", 1)[1]] = evenement
+    _diffuser(evenement)
+
 
 def _diffuser(evenement):
     """Envoie un evenement (dict) a tous les clients connectes."""
@@ -319,12 +341,30 @@ def _appliquer_controle(donnees):
             name="hud-test-voix",
         ).start()
         resultat = {"ok": True, "message": "Test vocal lance."}
+    elif action in ("ghost_simulation", "ghost_arreter", "ghost_desactiver"):
+        resultat = _controle_ghost(action)
     else:
         return {"ok": False, "message": "Controle inconnu."}
 
-    if resultat.get("ok") and action != "tester_voix":
+    if resultat.get("ok") and action != "tester_voix" and not action.startswith("ghost_"):
         _synchroniser_controles()
     return resultat
+
+
+def _controle_ghost(action):
+    """Boutons du HUD Ghost : RUN SIMULATION (script factice isole), arret, sortie du mode. Local, sans LLM."""
+    try:
+        from modes.ghost_protocol import controleur
+        c = controleur()
+        if action == "ghost_simulation":
+            p = c.run_script()
+            return {"ok": p is not None, "message": "Simulation locale lancee." if p else "Aucun script pret."}
+        if action == "ghost_arreter":
+            return {"ok": True, "message": c.arreter_simulation()}
+        c.desactiver_immediat()
+        return {"ok": True, "message": "Mode Ghost desactive."}
+    except Exception as e:
+        return {"ok": False, "message": str(e)[:160]}
 
 
 # ---------------------------------------------------------------- serveur
@@ -451,6 +491,13 @@ class _Poignee(BaseHTTPRequestHandler):
             self._pousser({"t": "micro", "v": _ETAT.get("micro", False)})
             for evenement in list(_HISTORIQUE):
                 self._pousser(evenement)
+            if (_GHOST.get("etat") or {}).get("actif"):       # GHOST PROTOCOL : rejeu pour un client tardif
+                self._pousser(_GHOST["etat"])
+                for evenement in list(_GHOST_TERM):
+                    self._pousser(evenement)
+                for k in ("mission", "voix", "rapport", "script"):
+                    if _GHOST.get(k):
+                        self._pousser(_GHOST[k])
 
             # Flux continu. Le timeout sert a envoyer un battement de coeur
             # qui garde la connexion (et detecte les clients partis).

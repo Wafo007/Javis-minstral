@@ -24,6 +24,16 @@ def essayer(phrase, **rappels):
     if not p:
         return None
 
+    # --- GHOST PROTOCOL (local, sans LLM : fonctionne meme si le LLM est HS) ----
+    try:
+        from modes.ghost_protocol import commandes as _ghost
+        _rep = _ghost.essayer(phrase)
+        if _rep:
+            return _rep
+    except Exception:
+        import logging
+        logging.getLogger("jarvis.ghost").exception("commandes Ghost")
+
     # --- voix ---------------------------------------------------------------
     if re.search(r"\b(quelles|quelle|liste|lister|donne|dis moi|montre)\b.*\bvoix\b", p) or \
             re.fullmatch(r"(les )?voix disponibles?", p):

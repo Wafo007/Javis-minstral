@@ -1,5 +1,14 @@
 # Changelog
 
+## GHOST PROTOCOL (novembre 2026)
+
+- Nouveau mode reversible `modes/ghost_protocol/` : « active le mode hacker » -> HUD rouge tactique (reacteur, radar simule, panneau
+  de mission, terminal), personnalite tactique, voix ElevenLabs (repli Windows automatique), scenarios GHOST RECON / INTELLIGENCE /
+  ATTACK 100 % simules. « Desactive le mode hacker » restaure l'etat normal. Documentation : `docs/GHOST_PROTOCOL.md`.
+- Points d'accroche minimaux : `core/tts.py`, `core/commandes_locales.py`, `jarvis14.py` (verrou de parole, finalisation de sortie,
+  consigne de personnalite), `hud.py`/`hud.html` (canal `ghost*` du flux SSE), `config.example.yaml`, `.env.example`.
+- Tests : `tests/test_ghost_protocol.py` (transport ElevenLabs double : aucune voix reelle validee par les tests).
+
 ## Controle d'un telephone Android par ADB (novembre 2026)
 
 - `core/mobile_adb.py` + `tools/mobile.py` : lancer une app, statut, media, touches, defilement, notification, lien (N1) ; toucher/taper,

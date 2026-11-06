@@ -262,6 +262,13 @@ def tts():
     moteur local est choisi.
     """
     global _TTS
+    try:                                    # GHOST PROTOCOL : voix Ghost uniquement tant que le mode est actif
+        from modes.ghost_protocol import voice_manager
+        _ghost = voice_manager.provider_actif()
+        if _ghost is not None:
+            return _ghost
+    except Exception:
+        pass
     if _TTS is None:
         from core.routage import mode_actuel
         m = mode_actuel()

@@ -260,6 +260,67 @@
     .controle-bouton { right: 28px; top: 104px; }
     .controle-tiroir { top: 88px; right: 12px; bottom: 12px; width: calc(100vw - 24px); }
   }
+
+  /* ============ GHOST PROTOCOL (actif seulement avec body.ghost ; sans la classe, rien ne change) ============ */
+  #ghostLayer { display: none; }
+  body.ghost {
+    --fond: #050505; --texte: #f5f5f5; --texte-faible: #858585; --vous: #ff3333; --jarvis: #ff1744;
+    --g-rouge: #ff1744; --g-sombre: #800000; --g-clair: #ff3333;
+  }
+  body.ghost #scene {
+    background: radial-gradient(circle at 50% 46%, rgba(128,0,0,0.22), transparent 58%),
+                radial-gradient(circle at 50% 120%, rgba(80,0,0,0.3), transparent 60%), #050505;
+  }
+  body.ghost #ghostLayer { display: block; }
+  body.ghost .horloge .heure { text-shadow: 0 0 14px rgba(255,23,68,0.35); }
+  body.ghost .releve .val.actif { text-shadow: 0 0 10px rgba(255,23,68,0.6); }
+  body.ghost .transcription { width: min(420px, 38vw); left: 50%; }
+  .g-scan { position: fixed; inset: 0; pointer-events: none; z-index: 5;
+    background: repeating-linear-gradient(180deg, rgba(255,255,255,0.025) 0 1px, transparent 1px 3px);
+    mix-blend-mode: screen; animation: gDerive 9s linear infinite; }
+  @keyframes gDerive { to { background-position: 0 60px; } }
+  .g-titre { position: fixed; top: 14px; left: 50%; transform: translateX(-50%); text-align: center; z-index: 6;
+    user-select: none; pointer-events: none; }
+  .g-titre b { display: block; font-size: 20px; letter-spacing: 10px; color: var(--g-rouge, #ff1744);
+    text-shadow: 0 0 18px rgba(255,23,68,0.7); }
+  .g-titre span { font-size: 10px; letter-spacing: 5px; color: #858585; }
+  .g-panneau { position: fixed; z-index: 6; background: rgba(8,0,0,0.72); border: 1px solid rgba(255,23,68,0.35);
+    box-shadow: 0 0 22px rgba(128,0,0,0.35) inset; padding: 10px 12px; font-size: 11px; color: #f5f5f5; }
+  .g-panneau h4 { margin: 0 0 7px; font-size: 10px; letter-spacing: 4px; color: #ff3333; font-weight: 600; }
+  #gMission { right: 22px; top: 156px; width: min(300px, 30vw); }
+  #gMission .l { display: flex; justify-content: space-between; gap: 8px; padding: 2px 0; color: #858585; }
+  #gMission .l i { font-style: normal; color: #f5f5f5; text-align: right; }
+  #gBarre { height: 5px; background: #2a0000; margin: 7px 0 3px; }
+  #gBarre i { display: block; height: 100%; width: 0; background: linear-gradient(90deg,#800000,#ff1744); transition: width .5s ease; }
+  #gRadar { right: 22px; bottom: 26px; width: min(230px, 24vw); height: min(230px, 24vw); padding: 0; border-radius: 50%; }
+  #gRadarCanvas { width: 100%; height: 100%; display: block; border-radius: 50%; }
+  #gTerm { left: 22px; bottom: 26px; width: min(430px, 33vw); height: min(250px, 34vh); display: flex; flex-direction: column; }
+  #gTermLog { flex: 1; overflow: hidden; display: flex; flex-direction: column; justify-content: flex-end; gap: 2px;
+    font-size: 10.5px; line-height: 1.35; }
+  #gTermLog div { white-space: pre-wrap; word-break: break-word; color: #d8d8d8; }
+  #gTermLog .h { color: #800000; } #gTermLog .ok { color: #ff3333; } #gTermLog .sim { color: #c89090; }
+  #gTermLog .warn { color: #ffb347; } #gTermLog .erreur { color: #ff1744; font-weight: 600; }
+  #gVoix { left: 50%; transform: translateX(-50%); top: 58px; padding: 3px 9px; font-size: 10px; letter-spacing: 3px; width: auto; }
+  #gVoix.fb { color: #ffb347; border-color: rgba(255,179,71,.6); }
+  #gActions { position: fixed; left: 50%; transform: translateX(-50%); bottom: 14px; z-index: 7; display: flex; gap: 8px; }
+  .g-btn { background: rgba(128,0,0,0.35); color: #f5f5f5; border: 1px solid #ff1744; padding: 6px 14px;
+    font: 11px var(--mono); letter-spacing: 3px; cursor: pointer; }
+  .g-btn:hover:not(:disabled) { background: #ff1744; color: #050505; }
+  .g-btn:disabled { opacity: .35; cursor: default; }
+  #gRapport { cursor: pointer; left: 50%; transform: translateX(-50%); top: 88px; width: min(460px, 86vw); display: none; white-space: pre; font-size: 11px;
+    max-height: 40vh; overflow: auto; white-space: pre-wrap; }
+  body.ghost-entree { animation: gEntree .9s steps(12) 1; }
+  @keyframes gEntree { 0% { filter: hue-rotate(160deg) brightness(2.2); transform: translateX(6px); }
+    30% { transform: translateX(-5px); } 60% { filter: brightness(1.4); transform: translateX(3px) skewX(2deg); } 100% { filter: none; transform: none; } }
+  @media (max-width: 900px), (max-height: 560px) {
+    #gRadar { display: none; }
+    #gMission { top: 150px; right: 8px; width: 46vw; }
+    #gTerm { left: 8px; bottom: 56px; width: calc(100vw - 16px); height: 24vh; }
+    body.ghost .transcription { display: none; }
+    .g-titre b { font-size: 15px; letter-spacing: 6px; } .g-titre span { font-size: 8px; letter-spacing: 3px; }
+    #gVoix { top: 48px; }
+  }
+  @media (prefers-reduced-motion: reduce) { .g-scan, body.ghost-entree { animation: none; } }
 </style>
 </head>
 <body>
@@ -284,6 +345,30 @@
       <span class="val" id="vBudget">—</span></div>
     <div class="champ"><span class="cle">Hermes</span>
       <span class="val" id="vHermes">—</span></div>
+  </div>
+
+  <!-- GHOST PROTOCOL : couche masquee tant que body n'a pas la classe "ghost" -->
+  <div id="ghostLayer" aria-hidden="true">
+    <div class="g-scan"></div>
+    <div class="g-titre"><b>GHOST PROTOCOL</b><span>TACTICAL CYBER INTELLIGENCE SYSTEM</span></div>
+    <div class="g-panneau" id="gVoix">GHOST VOICE : <span id="gVoixV">—</span></div>
+    <div class="g-panneau" id="gMission"><h4>MISSION</h4>
+      <div class="l">CURRENT<i id="gMNom">STANDBY</i></div>
+      <div class="l">SIMULATION<i id="gMEtat">IDLE</i></div>
+      <div class="l">PROGRESS<i id="gMPct">0 %</i></div>
+      <div id="gBarre"><i id="gBarreI"></i></div>
+      <div class="l">ELAPSED<i id="gMTemps">00:00:00</i></div>
+      <div class="l">THREAT LEVEL (FICTIONAL)<i id="gMMenace">-</i></div>
+      <div class="l">VOICE ENGINE<i id="gMVoix">—</i></div>
+    </div>
+    <div class="g-panneau" id="gRapport"></div>
+    <div class="g-panneau" id="gTerm"><h4>TERMINAL</h4><div id="gTermLog"></div></div>
+    <div class="g-panneau" id="gRadar"><canvas id="gRadarCanvas"></canvas></div>
+    <div id="gActions">
+      <button class="g-btn" id="gBtnRun" disabled>RUN SIMULATION</button>
+      <button class="g-btn" id="gBtnStop">STOP</button>
+      <button class="g-btn" id="gBtnExit">EXIT GHOST</button>
+    </div>
   </div>
 
   <div id="bandeauConfirm" style="display:none;position:fixed;top:64px;left:50%;
@@ -583,7 +668,7 @@ function dessiner(t) {
   requestAnimationFrame(dessiner);
 
   // Lissage de la couleur et du niveau.
-  versCouleur(COULEURS[S.etat] || COULEURS.veille, 0.05);
+  versCouleur(palette(), 0.05);
   S.niveauLisse += (S.niveauCible - S.niveauLisse) * 0.15;
   const niv = S.niveauLisse;
 
@@ -733,7 +818,7 @@ function majReleve() {
   const et = LIBELLES[S.etat] || S.etat.toUpperCase();
   const eti = $("etiquetteEtat");
   eti.textContent = et;
-  const c = COULEURS[S.etat] || COULEURS.veille;
+  const c = palette();
   eti.style.color = `rgb(${c.r},${c.g},${c.b})`;
 
   // La valeur "ecoute" s'illumine quand on est en ecoute active.
@@ -775,9 +860,125 @@ function majHorloge() {
     `${JOURS[d.getDay()]} ${d.getDate()} ${MOIS[d.getMonth()]} ${d.getFullYear()}`;
 }
 
+
+// ------------------------------------------------------------- GHOST PROTOCOL (tout est inerte tant que S.ghost est faux)
+
+const COULEURS_GHOST = {
+  veille: { r: 128, g: 0, b: 0 }, ecoute: { r: 255, g: 51, b: 51 }, reflexion: { r: 200, g: 20, b: 40 },
+  parole: { r: 255, g: 23, b: 68 }, muet: { r: 133, g: 133, b: 133 }, execution: { r: 255, g: 60, b: 60 },
+  erreur: { r: 255, g: 23, b: 68 },
+};
+function palette() { return (S.ghost ? COULEURS_GHOST : COULEURS)[S.etat] || (S.ghost ? COULEURS_GHOST : COULEURS).veille; }
+
+const G = { t0: 0, titre: "", horloge: null, radar: null, points: [], dernierTexte: "" };
+
+function gHorodatage(s) {
+  s = Math.max(0, Math.floor(s));
+  return [Math.floor(s / 3600), Math.floor(s / 60) % 60, s % 60].map((n) => String(n).padStart(2, "0")).join(":");
+}
+function gActiver(ev) {
+  if (!S.ghost) {
+    S.ghost = true;
+    G.titre = document.title;
+    document.title = "GHOST PROTOCOL";
+    document.body.classList.add("ghost", "ghost-entree");
+    setTimeout(() => document.body.classList.remove("ghost-entree"), 1000);
+    G.points = Array.from({ length: 7 }, () => ({ a: Math.random() * 6.28, r: 0.2 + Math.random() * 0.7, v: 0 }));
+    if (!G.radar) G.radar = requestAnimationFrame(gRadar);
+    G.horloge = setInterval(() => { $("gMTemps").textContent = gHorodatage((Date.now() - G.t0) / 1000); }, 1000);
+  }
+  G.t0 = Date.now() - ((ev && ev.temps_s) || 0) * 1000;
+  majReleve();
+}
+function gDesactiver() {
+  if (!S.ghost) return;
+  S.ghost = false;
+  document.body.classList.remove("ghost", "ghost-entree");
+  document.title = G.titre || "Jarvis";
+  majReleve();
+  if (G.horloge) { clearInterval(G.horloge); G.horloge = null; }
+  if (G.radar) { cancelAnimationFrame(G.radar); G.radar = null; }
+  $("gTermLog").textContent = "";
+  $("gRapport").style.display = "none";
+  $("gBtnRun").disabled = true;
+  $("gMNom").textContent = "STANDBY"; $("gMEtat").textContent = "IDLE"; $("gMPct").textContent = "0 %";
+  $("gBarreI").style.width = "0"; $("gMMenace").textContent = "-";
+}
+function gMission(ev) {
+  $("gMNom").textContent = ev.nom || ev.mission || "STANDBY";
+  $("gMEtat").textContent = ev.etat || "IDLE";
+  const p = Math.round((ev.progression || 0) * 100);
+  $("gMPct").textContent = p + " %";
+  $("gBarreI").style.width = p + "%";
+  $("gMMenace").textContent = ev.menace || "-";
+  if (ev.voix) gVoix(ev.voix);
+}
+function gVoix(v) {
+  $("gVoixV").textContent = v;
+  $("gMVoix").textContent = v;
+  $("gVoix").classList.toggle("fb", v === "FALLBACK");
+}
+function gTerm(ev) {
+  const log = $("gTermLog");
+  const d = document.createElement("div");
+  d.className = ev.niveau || "info";
+  const h = document.createElement("span");
+  h.className = "h"; h.textContent = "[" + (ev.h || "00:00:00") + "] ";
+  d.appendChild(h); d.appendChild(document.createTextNode(ev.texte || ""));
+  log.appendChild(d);
+  while (log.children.length > 60) log.removeChild(log.firstChild);
+}
+function gRadar(t) {
+  G.radar = requestAnimationFrame(gRadar);
+  const cv = $("gRadarCanvas");
+  if (!cv.clientWidth) return;
+  const dpr = window.devicePixelRatio || 1, w = cv.clientWidth;
+  if (cv.width !== Math.round(w * dpr)) { cv.width = cv.height = Math.round(w * dpr); }
+  const c = cv.getContext("2d"); c.setTransform(dpr, 0, 0, dpr, 0, 0);
+  const R = w / 2; c.clearRect(0, 0, w, w); c.translate(R, R);
+  c.strokeStyle = "rgba(255,23,68,0.35)"; c.lineWidth = 1;
+  for (let i = 1; i <= 3; i++) { c.beginPath(); c.arc(0, 0, R * i / 3.1, 0, 6.283); c.stroke(); }
+  c.beginPath(); c.moveTo(-R, 0); c.lineTo(R, 0); c.moveTo(0, -R); c.lineTo(0, R); c.stroke();
+  const a = (t * 0.0011) % 6.283;
+  const g = c.createConicGradient ? c.createConicGradient(a - 1.2, 0, 0) : null;
+  if (g) { g.addColorStop(0, "rgba(255,23,68,0)"); g.addColorStop(0.19, "rgba(255,23,68,0.45)"); g.addColorStop(0.2, "rgba(255,23,68,0)");
+    c.fillStyle = g; c.beginPath(); c.arc(0, 0, R * 0.95, 0, 6.283); c.fill(); }
+  c.strokeStyle = "#ff1744"; c.beginPath(); c.moveTo(0, 0); c.lineTo(Math.cos(a) * R * 0.95, Math.sin(a) * R * 0.95); c.stroke();
+  for (const p of G.points) {          // points FICTIFS : aucune donnee reseau n'est lue
+    let d = (a - p.a) % 6.283; if (d < 0) d += 6.283;
+    if (d < 0.08) p.v = 1; p.v *= 0.985;
+    if (p.v > 0.03) { c.fillStyle = `rgba(255,51,51,${p.v})`; c.beginPath();
+      c.arc(Math.cos(p.a) * R * p.r, Math.sin(p.a) * R * p.r, 3, 0, 6.283); c.fill(); }
+  }
+}
+function gAppliquer(ev) {
+  switch (ev.t) {
+    case "ghost":
+      if (ev.actif) { gActiver(ev); gMission({ nom: ev.mission, etat: ev.etat, progression: ev.progression, menace: ev.menace, voix: ev.voix }); }
+      else gDesactiver();
+      break;
+    case "ghost_term": if (S.ghost) gTerm(ev); break;
+    case "ghost_mission": if (S.ghost) gMission(ev); break;
+    case "ghost_voix": if (S.ghost) gVoix(ev.v); break;
+    case "ghost_rapport": if (S.ghost) { const r = $("gRapport"); r.textContent = ev.texte || ""; r.style.display = "block"; } break;
+    case "ghost_script": if (S.ghost) { $("gBtnRun").disabled = false; } break;
+  }
+}
+async function gControle(action) {
+  try {
+    await fetch("/api/controle", { method: "POST", headers: { "Content-Type": "application/json", "X-Jarvis-HUD": "1" },
+      body: JSON.stringify({ action }) });
+  } catch (e) {}
+}
+$("gBtnRun").onclick = () => { $("gBtnRun").disabled = true; gControle("ghost_simulation"); setTimeout(() => { if (S.ghost) $("gBtnRun").disabled = false; }, 4000); };
+$("gRapport").onclick = () => { $("gRapport").style.display = "none"; };
+$("gBtnStop").onclick = () => gControle("ghost_arreter");
+$("gBtnExit").onclick = () => gControle("ghost_desactiver");
+
 // ------------------------------------------------------------- evenements
 
 function appliquer(ev) {
+  if (ev.t && ev.t.indexOf("ghost") === 0) { gAppliquer(ev); return; }
   switch (ev.t) {
     case "etat":
       S.etat = ev.v;
