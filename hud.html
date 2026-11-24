@@ -123,7 +123,7 @@
   .transcription {
     position: fixed;
     left: 50%;
-    bottom: 26px;
+    bottom: 92px;          /* au-dessus de la barre de saisie clavier */
     transform: translateX(-50%);
     width: min(760px, 84vw);
     max-height: 210px;
@@ -321,6 +321,32 @@
     #gVoix { top: 48px; }
   }
   @media (prefers-reduced-motion: reduce) { .g-scan, body.ghost-entree { animation: none; } }
+  /* --- saisie clavier : ecrire une demande, Jarvis repond toujours a voix haute --- */
+  .saisie {
+    position: fixed; left: 50%; bottom: 22px; transform: translateX(-50%);
+    width: min(640px, calc(100vw - 48px)); display: flex; gap: 8px; z-index: 8;
+  }
+  .saisie input {
+    flex: 1; min-width: 0; padding: 10px 14px; border-radius: 10px;
+    border: 1px solid rgba(111,227,255,.28); background: rgba(4,7,10,.72);
+    color: var(--vous); font: inherit; font-size: 13px; outline: none;
+    backdrop-filter: blur(6px);
+  }
+  .saisie input::placeholder { color: var(--texte-faible); }
+  .saisie input:focus { border-color: rgba(111,227,255,.7); }
+  .saisie button {
+    padding: 0 16px; border-radius: 10px; cursor: pointer; font: inherit; font-size: 12px;
+    letter-spacing: 1px; color: var(--vous); background: rgba(111,227,255,.08);
+    border: 1px solid rgba(111,227,255,.35);
+  }
+  .saisie button:hover:not(:disabled) { background: rgba(111,227,255,.18); }
+  .saisie button:disabled { opacity: .4; cursor: wait; }
+  .saisie-statut {
+    position: fixed; left: 50%; bottom: 68px; transform: translateX(-50%);
+    z-index: 8; font-size: 11px; color: var(--texte-faible); min-height: 14px;
+  }
+  .saisie-statut.ko { color: #ff7c7c; }
+  body.ghost .saisie input { border-color: rgba(255,60,60,.4); color: #ff8a8a; }
 </style>
 </head>
 <body>
@@ -387,6 +413,13 @@
     <div class="heure" id="vHeure">--:--:--</div>
     <div class="date" id="vDate">—</div>
   </div>
+
+  <div class="saisie-statut" id="saisieStatut" role="status" aria-live="polite"></div>
+  <form class="saisie" id="saisieForm" autocomplete="off">
+    <input id="saisieTexte" type="text" maxlength="1000" enterkeyhint="send"
+      placeholder="Écris ta demande… Jarvis te répondra à voix haute" aria-label="Écrire à Jarvis">
+    <button type="submit" id="saisieEnvoyer">ENVOYER</button>
+  </form>
 
   <button class="controle-bouton" id="ouvrirControle" type="button"
     aria-controls="controleTiroir" aria-expanded="false">⚙ Config</button>
@@ -1133,6 +1166,40 @@ $("controleModeleEleven").addEventListener("change", (e) => envoyerControle({
   action:"modele_elevenlabs", valeur:e.target.value}));
 $("testerVoix").addEventListener("click", () => envoyerControle({action:"tester_voix"}));
 document.addEventListener("keydown", (e) => { if (e.key === "Escape") ouvrirFermerControles(false); });
+
+// --- saisie clavier : la demande ecrite suit le meme chemin que la voix ; la reponse reste vocale ---
+let saisieEnCours = false;
+function statutSaisie(texte, ko) {
+  const el = $("saisieStatut");
+  el.textContent = texte || "";
+  el.classList.toggle("ko", Boolean(ko));
+}
+async function envoyerSaisie(ev) {
+  ev.preventDefault();
+  const champ = $("saisieTexte");
+  const texte = champ.value.trim();
+  if (!texte || saisieEnCours) return;
+  if (location.protocol === "file:") { statutSaisie("Mode démo : rien n'est envoyé.", true); return; }
+  saisieEnCours = true;
+  $("saisieEnvoyer").disabled = true;
+  try {
+    const rep = await fetch("/api/controle", {
+      method: "POST",
+      headers: {"Content-Type": "application/json", "X-Jarvis-HUD": "1"},
+      body: JSON.stringify({action: "ecrire", texte}),
+    });
+    const d = await rep.json();
+    if (d.ok) { champ.value = ""; statutSaisie(""); }
+    else { statutSaisie(d.message || "Envoi refusé.", true); }
+  } catch (e) {
+    statutSaisie("Jarvis est injoignable.", true);
+  } finally {
+    saisieEnCours = false;
+    $("saisieEnvoyer").disabled = false;
+    champ.focus();
+  }
+}
+$("saisieForm").addEventListener("submit", envoyerSaisie);
 
 if (location.protocol === "file:") {
   demonstration();

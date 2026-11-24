@@ -33,7 +33,7 @@ except Exception:
 import numpy as np
 import sounddevice as sd
 
-from core import config, journal, memoire, personnalite, registre, voix
+from core import config, entree_texte, journal, memoire, personnalite, registre, voix
 from core.confirmation_vocale import NON, TOUJOURS, interpreter_confirmation
 from core.util import nettoyer_reponse_vocale, sans_accents
 from tools.lumieres import allumer_si_nuit, charger_pieces_hue
@@ -1168,6 +1168,8 @@ def attendre_suite(flux, tampon, duree=DUREE_SUITE):
     debut = time.time()
     blocs_voix = 0
     while time.time() - debut < duree:
+        if entree_texte.en_attente():
+            return False        # une demande ecrite attend : la boucle principale la traite
         try:
             bloc = lire_bloc(flux)
         except Exception:
@@ -1311,20 +1313,48 @@ def repondre_en_ecoutant(historique, flux, reveil, whisper):
     return resultat.get("texte", ""), interrompu, relancer
 
 
-def _confirmer(interrompu, relancer, whisper, historique, flux):
-    """Capture la reponse oui/non a une demande de confirmation et agit."""
+def _attendre_confirmation_ecrite():
+    """Attend une reponse TAPEE (oui / non / oui toujours) ; "" si rien avant le delai."""
+    fin = time.monotonic() + entree_texte.delai_confirmation()
+    while time.monotonic() < fin:
+        if _INTERRUPTION.is_set():
+            return ""
+        entree = entree_texte.prendre(0.2)
+        if entree is not None:
+            return entree.texte
+    return ""
+
+
+def _confirmer(interrompu, relancer, whisper, historique, flux, origine="voix"):
+    """Capture la reponse oui/non a une demande de confirmation et agit.
+
+    origine="texte" : la demande a ete ecrite, la confirmation peut l'etre aussi (N2, ou N3 si
+    texte.confirmation_ecrite_n3) ; sinon la confirmation reste vocale, comme avant.
+    """
     if interrompu:
         registre.annuler_confirme()
         return "", relancer
 
     _INTERRUPTION.clear()
-    _hud("etat", "ecoute")
-    audio_conf = capturer(flux, deque(), duree_min=0.3,
-                          attente_debut=float(config.reglage("assistant.attente_confirmation", 3.0)))
+    niveau_en_attente = registre.niveau(registre.nom_en_attente() or "")
     reponse = ""
-    if audio_conf is not None:
-        seg, _ = whisper.transcribe(audio_conf, language="fr", beam_size=5)
-        reponse = nettoyer(" ".join(s.text for s in seg).strip())
+    if origine == "texte" and entree_texte.confirmation_ecrite_permise(niveau_en_attente):
+        _hud("etat", "ecoute")
+        print("  [confirmation] en attente d'une reponse ecrite (oui / non)...")
+        reponse = _attendre_confirmation_ecrite()
+        if reponse:
+            _hud("dire_vous", reponse)
+    else:
+        _hud("etat", "ecoute")
+        audio_conf = capturer(flux, deque(), duree_min=0.3,
+                              attente_debut=float(config.reglage("assistant.attente_confirmation", 3.0)))
+        if audio_conf is not None:
+            seg, _ = whisper.transcribe(audio_conf, language="fr", beam_size=5)
+            reponse = nettoyer(" ".join(s.text for s in seg).strip())
+        if origine == "texte" and entree_texte.vider():
+            # Un « oui » TAPE pour une action qui exige la voix (N3) ne vaut rien : on le jette pour qu'il
+            # ne soit pas traite plus tard comme une nouvelle demande.
+            print("  [confirmation] reponse ecrite ignoree : cette action se confirme a la voix.")
     print(f"  [confirmation] {reponse or '(rien)'}")
 
     memoriser = _est_toujours(reponse)
@@ -1364,6 +1394,24 @@ def traiter(audio, whisper, historique, flux, reveil):
         return False
 
     print(f"  Vous : {question}")
+    return _traiter_question(question, whisper, historique, flux, reveil, origine="voix")
+
+
+def traiter_texte(entree, whisper, historique, flux, reveil):
+    """Traite une demande ECRITE (clavier) : meme pipeline que la voix, reponse TOUJOURS vocale.
+
+    Renvoie True si on doit enchainer (relance), comme ``traiter``.
+    """
+    brut = entree.texte
+    # « Jarvis, ouvre YouTube » : on retire l'interpellation. Si le filtre anti-hallucination du STT
+    # vide une phrase legitime tapee (« merci »), on garde le texte tel que l'utilisateur l'a ecrit.
+    question = nettoyer(brut) or brut
+    print(f"  Vous (clavier) : {question}")
+    return _traiter_question(question, whisper, historique, flux, reveil, origine="texte")
+
+
+def _traiter_question(question, whisper, historique, flux, reveil, origine="voix"):
+    """Coeur commun voix/clavier : repond (outils, confirmations) et PARLE. True = enchainer."""
     _hud("dire_vous", question)
     _hud("etat", "reflexion")
     historique.append({"role": "user", "content": question})
@@ -1372,7 +1420,7 @@ def traiter(audio, whisper, historique, flux, reveil):
 
     if texte == SENTINEL_CONFIRM:
         _hud("confirmation", True)
-        texte, relancer = _confirmer(interrompu, relancer, whisper, historique, flux)
+        texte, relancer = _confirmer(interrompu, relancer, whisper, historique, flux, origine=origine)
         _hud("confirmation", False)
     elif not texte:
         texte = "C'est fait."
@@ -1687,7 +1735,12 @@ def main():
         LOG.exception("modes/voix: initialisation")
 
     _demarrer_suivi_missions()
-    print('\nPret. Dites "Hey Jarvis". Ctrl+C pour quitter.\n')
+    _console_active = entree_texte.demarrer_console()
+    print('\nPret. Dites "Hey Jarvis"'
+          + (" ou ecrivez votre demande ici (Entree pour envoyer)" if _console_active else "")
+          + ". Ctrl+C pour quitter.\n")
+    if entree_texte.actif():
+        print("Saisie clavier : champ en bas du HUD" + (" et ce terminal." if _console_active else "."))
     print('Vous pouvez le couper en redisant "Hey Jarvis" pendant qu\'il parle.\n')
 
     # Scene "au demarrage" : jouee UNE fois par jour, au premier lancement (musique
@@ -1705,6 +1758,20 @@ def main():
         while True:
             suite = enchainer
             if not enchainer:
+                # Entree CLAVIER : une demande ecrite passe avant l'ecoute du mot d'activation
+                # (meme si le micro est coupe). Jarvis y repond toujours a voix haute.
+                entree = entree_texte.prendre(0.0) if entree_texte.actif() else None
+                if entree is not None:
+                    try:
+                        if traiter_texte(entree, whisper, historique, flux, reveil):
+                            enchainer = True
+                        else:
+                            _apres_parole(flux, tampon)   # jette l'echo de sa propre voix
+                            _hud("etat", "veille")
+                    except Exception:
+                        LOG.exception("traitement d'une demande ecrite")
+                        _hud("etat", "erreur")
+                    continue
                 bloc = lire_bloc(flux)
                 tampon.append(bloc)
 

@@ -310,6 +310,16 @@ def _etat_controles():
     }
 
 
+def _ecrire(texte):
+    """Demande ECRITE depuis le HUD : mise en file pour la boucle principale (reponse toujours vocale)."""
+    from core import entree_texte
+    try:
+        retenu = entree_texte.soumettre(texte, origine="hud")
+    except entree_texte.RefusEntree as exc:
+        return {"ok": False, "message": str(exc)}
+    return {"ok": True, "message": "Envoye.", "texte": retenu}
+
+
 def _appliquer_controle(donnees):
     """Applique une action whitelistée du HUD et renvoie un resultat JSON."""
     from core import panneau
@@ -343,10 +353,12 @@ def _appliquer_controle(donnees):
         resultat = {"ok": True, "message": "Test vocal lance."}
     elif action in ("ghost_simulation", "ghost_arreter", "ghost_desactiver"):
         resultat = _controle_ghost(action)
+    elif action == "ecrire":
+        resultat = _ecrire(donnees.get("texte", ""))
     else:
         return {"ok": False, "message": "Controle inconnu."}
 
-    if resultat.get("ok") and action != "tester_voix" and not action.startswith("ghost_"):
+    if resultat.get("ok") and action not in ("tester_voix", "ecrire") and not action.startswith("ghost_"):
         _synchroniser_controles()
     return resultat
 

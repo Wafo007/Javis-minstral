@@ -1,5 +1,16 @@
 # Changelog
 
+## Saisie clavier (novembre 2026)
+
+- Nouvelle entree **texte** : on peut desormais parler a Jarvis OU lui ecrire ; il repond TOUJOURS a voix haute.
+  Champ de saisie en bas du HUD (`hud.html` -> `/api/controle`, action `ecrire`) et saisie dans le terminal.
+- `core/entree_texte.py` : file bornee et validee (longueur, caracteres de controle, debit), console optionnelle.
+- `jarvis14.py` : `traiter` est decoupe en `traiter` (voix) / `traiter_texte` (clavier) / `_traiter_question` (coeur commun) ;
+  la boucle principale lit la file avant le mot d'activation (meme micro coupe).
+- Permissions inchangees : N1/N2/N3 identiques. Confirmation ecrite permise pour N2 ; pour N3 elle reste VOCALE sauf
+  `texte.confirmation_ecrite_n3: true`. Delai de reponse ecrite : `texte.delai_confirmation` (annulation sinon).
+- Config : bloc `texte:` dans `config.example.yaml`. Tests : `tests/test_entree_texte.py`. Doc : `docs/entree_texte.md`.
+
 ## GHOST PROTOCOL (novembre 2026)
 
 - Nouveau mode reversible `modes/ghost_protocol/` : « active le mode hacker » -> HUD rouge tactique (reacteur, radar simule, panneau

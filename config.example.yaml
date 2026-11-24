@@ -232,6 +232,13 @@ hud:
   fenetre: app
   ecran: null
   premier_plan_au_reveil: true
+texte:                     # saisie CLAVIER : ecrire une demande (Jarvis repond toujours a voix haute)
+  actif: true              # false = voix uniquement, champ du HUD sans effet
+  console: true            # accepte aussi les lignes tapees dans le terminal de Jarvis
+  longueur_max: 1000       # caracteres par message (20 a 4000)
+  confirmation_ecrite: true       # une action N2 demandee par ecrit peut etre confirmee par ecrit
+  confirmation_ecrite_n3: false   # N3 (mail, appel, suppression...) : false = confirmation VOCALE obligatoire
+  delai_confirmation: 20   # secondes pour taper « oui » avant annulation automatique
 signal_matin:
   actif: false
   declenchement: desactive
