@@ -55,3 +55,22 @@ def rapport(texte: str):
 
 def script_pret(nom: str, lignes: int):
     _emettre({"t": "ghost_script", "nom": nom, "lignes": int(lignes)})
+
+
+def telemetrie(mesures: dict):
+    _emettre({"t": "ghost_telemetry", **{k: v for k, v in mesures.items() if k != "ts"}})
+
+
+def boot(libelle: str, statut: str, niveau: str = "ok"):
+    """Ligne de la sequence de demarrage (statuts REELS : voix, LLM, HUD, outils...)."""
+    _emettre({"t": "ghost_boot", "libelle": str(libelle), "statut": str(statut), "niveau": niveau})
+
+
+def son(nom: str):
+    """Demande au HUD de jouer un effet sonore synthetise (activation, alerte, fin...)."""
+    _emettre({"t": "ghost_son", "nom": nom})
+
+
+def securite(snapshot: dict):
+    """Etat de l'audit de securite (cible, etape, progression, agents/outils actifs, compteurs, derniers resultats, historique)."""
+    _emettre({"t": "ghost_secu", **snapshot})

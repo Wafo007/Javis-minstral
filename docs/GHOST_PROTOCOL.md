@@ -87,3 +87,14 @@ pas de double lecture (vérification structurelle), SSE, génération du script,
 - Jarvis complet non lancé sous Windows pendant le développement ; HUD vérifié seulement dans Chromium (Linux).
 - La sortie vocale en cours de phrase n'est pas coupée par le mode ; l'adieu est toujours dit en entier avant la bascule.
 - Deux tests préexistants de `tests/test_mobile.py` échouent déjà sur l'archive d'origine (ordre de routage), indépendamment de Ghost.
+
+## Mise à jour : synchronisation HUD/voix, expérience « IA de science-fiction », audit de sécurité
+
+* **Désynchronisation voix/HUD corrigée** : (1) la page HUD est servie sans cache et se recharge d'elle-même quand `hud.html` change (empreinte de version) ;
+  (2) le nom du mode est reconnu *phonétiquement* (« ghost protocol », « mode hacker », transcriptions déformées par la reconnaissance vocale) ;
+  (3) l'état est ré-émis au HUD (rejeu pour un onglet ouvert tard, battement de cœur) et la parole est sérialisée par un verrou ; (4) hors Ghost, le LLM reçoit une consigne
+  qui lui interdit de prétendre « passer en Ghost Protocol » : seul le contrôleur peut le faire.
+* **Expérience** : télémétrie *réelle* (CPU, RAM, disque, batterie, réseau — `n/a` si indisponible), séquence de démarrage, effets sonores synthétisés (bouton SFX),
+  « rapport de situation » parlé (« rapport de situation » / « diagnostic »), « qui es-tu », personnalité tactique active uniquement pendant le mode.
+* **Audit de sécurité autorisé** : voir `docs/GUIDE_JARVIS_SECURITY.md` et `docs/ARCHITECTURE_SECURITY_INTELLIGENCE.md`. Les scénarios Ghost Recon/Intelligence/Attack restent 100 % simulés ;
+  l'audit de sécurité est, lui, réel mais limité aux cibles que vous avez enregistrées.

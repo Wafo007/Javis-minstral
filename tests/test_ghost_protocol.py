@@ -452,7 +452,9 @@ def test_pas_de_cle_dans_le_depot():
 
 def test_personnalite_ghost_reversible():
     from modes.ghost_protocol import personality
-    assert personality.consigne(True) and personality.consigne(False) == ""
+    assert personality.consigne(True) == personality.CONSIGNE_GHOST
+    garde = personality.consigne(False)                       # hors mode : jamais la persona, mais une garde anti-« faux passage »
+    assert garde and "Commandant" not in garde and "JAMAIS" in garde
     assert "fictif" in personality.CONSIGNE_GHOST.lower() or "simul" in personality.CONSIGNE_GHOST.lower()
 
 
@@ -461,3 +463,124 @@ def test_cache_audio_lru(tmp_path):
     for i in range(10):
         c.ecrire(c.cle(f"t{i}", "v", "m", {}), bytes(1000))
     assert sum(f.stat().st_size for f in tmp_path.iterdir() if f.is_file()) <= 3000
+
+
+# --- Correctif « Jarvis dit passer en Ghost mais le HUD ne change pas » -------------------------------------------
+@pytest.mark.parametrize("phrase", [
+    "Jarvis, active le mode hacker", "jarvis active gost protocole", "passe en mode ghost", "active goste protocol",
+    "Jarvis, Ghost Protocol", "mets le mode haker", "active le mode hacqueur", "initialise ghost protocole", "active go ste protocole",
+    "lance le protocole ghost",
+])
+def test_activation_malgre_stt_approximatif(ctrl, phrase):
+    assert commandes.essayer(phrase, ctrl) and ETAT.actif, phrase
+
+
+@pytest.mark.parametrize("phrase", [
+    "protocole http", "le protocole de sécurité du poste", "mode avion", "passe en mode nuit", "active le mode gaming",
+    "explique-moi ce qu'est Ghost Protocol", "c'est quoi le mode hacker", "protocole ftp", "lance la musique",
+])
+def test_pas_de_faux_declenchement(ctrl, phrase):
+    commandes.essayer(phrase, ctrl)
+    assert not ETAT.actif, phrase
+
+
+def test_desactivation_floue_et_formules_naturelles(ctrl):
+    ctrl.activer()
+    assert commandes.essayer("quitte gost protocole", ctrl) and ETAT.sortie_en_attente
+    ctrl.finaliser_sortie()
+    ctrl.activer()
+    assert commandes.essayer("fin du mode tactique", ctrl) and ETAT.sortie_en_attente
+    ctrl.finaliser_sortie()
+    assert not ETAT.actif
+
+
+def test_repeter_la_commande_resynchronise_le_hud(ctrl):
+    ctrl.activer()
+    hud_bridge.JOURNAL.clear()
+    ctrl.activer()                                           # « insister » : renvoie l'etat sans rien casser
+    assert any(e["t"] == "ghost" and e["actif"] for e in hud_bridge.JOURNAL)
+    ctrl.desactiver_immediat()
+    hud_bridge.JOURNAL.clear()
+    ctrl.desactiver()                                         # deja inactif : le HUD est quand meme remis au normal
+    assert any(e["t"] == "ghost" and not e["actif"] for e in hud_bridge.JOURNAL)
+
+
+def test_sortie_finalisee_meme_si_la_parole_echoue():
+    src = (RACINE / "jarvis14.py").read_text(encoding="utf-8")
+    rep = next(n for n in ast.parse(src).body if isinstance(n, ast.FunctionDef) and n.name == "repondre")
+    essais = [n for n in ast.walk(rep) if isinstance(n, ast.Try) and n.finalbody]
+    assert any("_ghost_apres_reponse" in ast.dump(t) for t in (f for e in essais for f in e.finalbody))
+
+
+def test_hud_page_sans_cache_version_et_clients():
+    import http.client, hud, json
+    srv = hud._Serveur(("127.0.0.1", 0), hud._Poignee)
+    port = srv.server_address[1]
+    threading.Thread(target=srv.serve_forever, daemon=True).start()
+    try:
+        c = http.client.HTTPConnection("127.0.0.1", port, timeout=5)
+        c.request("GET", "/")
+        r = c.getresponse(); corps = r.read()
+        assert r.status == 200 and r.getheader("Cache-Control") == "no-store"
+        assert b"__HUD_VERSION__" not in corps and hud._version_page().encode() in corps      # version injectee
+        assert hud.nb_clients() == 0
+        c.close()
+    finally:
+        srv.shutdown()
+
+
+def test_note_hud_si_aucun_client(ctrl, monkeypatch):
+    import hud
+    monkeypatch.setattr(hud, "_SERVEUR", object())
+    assert "aucun affichage HUD" in ctrl.activer()
+    monkeypatch.setattr(hud, "_SERVEUR", None)
+    assert "aucun affichage HUD" not in ctrl.activer()
+
+
+# --- IA science-fiction : telemetrie reelle, boot reel, rapport de situation ---------------------------------------
+def test_telemetrie_reelle_et_resume():
+    from modes.ghost_protocol import telemetry
+    telemetry.lire(); time.sleep(0.2)
+    m = telemetry.lire()
+    assert 0 <= m["cpu"] <= 100 and 0 <= m["ram"] <= 100 and m["processus"] > 0
+    phrase = telemetry.resume_parle({"cpu": 95, "ram": 40, "disque": 10, "batterie": 20, "branche": False})
+    assert "charge processeur élevée" in phrase and "sur batterie" in phrase
+    assert "aucune mesure" in telemetry.resume_parle({"cpu": None, "ram": None, "disque": None, "batterie": None}).lower()
+
+
+def test_rapport_de_situation_vocal(ctrl):
+    assert commandes.essayer("rapport de situation", ctrl) is None        # inactif : phrase ignoree
+    ctrl.activer()
+    rep = commandes.essayer("Jarvis, fais un rapport de situation", ctrl)
+    assert "pour cent" in rep and "mémoire" in rep
+    assert "Ghost" in commandes.essayer("qui es-tu", ctrl)
+
+
+def test_boot_reel_et_telemetrie_diffusee(ctrl):
+    ctrl.activer()
+    deadline = time.time() + 5
+    while time.time() < deadline and not any(e["t"] == "ghost_boot" and e["libelle"] == "SANDBOX" for e in hud_bridge.JOURNAL):
+        time.sleep(0.05)
+    lib = {e["libelle"]: e["statut"] for e in hud_bridge.JOURNAL if e["t"] == "ghost_boot"}
+    assert {"GHOST CORE", "HUD LINK", "VOICE ENGINE", "LLM ROUTER", "TELEMETRY", "SANDBOX"} <= set(lib)
+    assert "WINDOWS" in lib["VOICE ENGINE"] and "key" in lib["VOICE ENGINE"]     # pas de cle dans ce test : etat reel
+    assert any(e["t"] == "ghost_son" and e["nom"] == "activation" for e in hud_bridge.JOURNAL)
+    ctrl.desactiver_immediat()
+
+
+def test_telemetrie_boucle_emet_puis_s_arrete(ctrl):
+    ctrl._arret_tele = threading.Event()
+    ctrl.activer()
+    ctrl._arret_tele.set()                                     # arrete la boucle lancee par activer()
+    arret = threading.Event()
+    fil = threading.Thread(target=ctrl._boucle_telemetrie, args=(arret, 0.05), daemon=True)
+    fil.start()
+    time.sleep(0.4)
+    arret.set(); fil.join(2)
+    assert not fil.is_alive()
+    assert any(e["t"] == "ghost_telemetry" and "cpu" in e for e in hud_bridge.JOURNAL)
+    assert ctrl.contexte_llm().startswith("Mesures systeme reelles")
+
+
+def test_contexte_llm_vide_sans_mesures(ctrl):
+    assert ctrl.contexte_llm() == ""

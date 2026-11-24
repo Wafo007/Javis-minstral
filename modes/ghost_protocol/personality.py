@@ -13,5 +13,13 @@ CONSIGNE_GHOST = (
 )
 
 
+CONSIGNE_GARDE = (
+    "Le mode « Ghost Protocol » (ou « mode hacker ») ne s'active et ne se desactive que par une commande locale que tu ne controles "
+    "pas. Ne dis JAMAIS que tu l'as active, desactive ou que tu 'passes en' Ghost Protocol : tu ne peux pas le faire. Si l'utilisateur "
+    "le demande et que tu es en train de lui repondre, dis simplement qu'il doit repeter « active le mode hacker » ou "
+    "« desactive le mode hacker » distinctement.")
+
+
 def consigne(actif: bool) -> str:
-    return CONSIGNE_GHOST if actif else ""
+    """Persona tactique si le mode est actif ; sinon une garde empechant le LLM de pretendre changer de mode."""
+    return CONSIGNE_GHOST if actif else CONSIGNE_GARDE

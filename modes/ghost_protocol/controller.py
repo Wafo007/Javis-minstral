@@ -45,6 +45,10 @@ class GhostController:
         self.dossier = dossier
         self.dernier_script = None
         self._sandbox = None
+        self._arret_tele = threading.Event()
+        self._fil_tele = None
+        self._derniere_alerte = 0.0
+        self.mesures = {}
 
     def definir_parleur(self, f):
         self.parleur = f
@@ -56,19 +60,40 @@ class GhostController:
     def activer(self) -> str:
         with self._verrou:
             if ETAT.actif and not ETAT.sortie_en_attente:
-                return self.rep.choisir("deja", responses.DEJA_ACTIF)
+                self.resynchroniser()                 # « insister » ne doit plus etre necessaire : on renvoie l'etat au HUD
+                return self.rep.choisir("deja", responses.DEJA_ACTIF) + self._note_hud()
             hud_bridge.debut_session()
             ETAT.definir(actif=True, depuis=time.time(), sortie_en_attente=False, voix=VOIX_INCONNUE, mission="STANDBY",
                          etat_sim="IDLE", progression=0.0, menace="-")
             hud_bridge.etat(ETAT.snapshot())
             for t in ("GHOST PROTOCOL INITIALIZED", "TACTICAL ENVIRONMENT ONLINE", "SIMULATION MODE: LOCAL ONLY - NO NETWORK SCAN"):
                 hud_bridge.terminal(t, "ok")
-            return self.rep.choisir("activation", responses.ACTIVATION)
+            hud_bridge.son("activation")
+            self._demarrer_telemetrie()
+            threading.Thread(target=self._sequence_boot, daemon=True, name="ghost-boot").start()
+            return self.rep.choisir("activation", responses.ACTIVATION) + self._note_hud()
+
+    def resynchroniser(self):
+        """Renvoie l'etat courant au HUD (client en retard, page obsolete, evenement manque)."""
+        hud_bridge.etat(ETAT.snapshot())
+
+    @staticmethod
+    def _note_hud() -> str:
+        """Phrase d'avertissement si le serveur HUD tourne mais qu'AUCUN affichage n'est connecte (cause frequente du
+        « Jarvis dit qu'il a change mais l'interface ne bouge pas »)."""
+        try:
+            import hud
+            if getattr(hud, "_SERVEUR", None) is not None and hud.nb_clients() == 0:
+                return " Attention : aucun affichage HUD n'est connecté. Ouvrez ou rechargez la fenêtre du HUD."
+        except Exception:
+            pass
+        return ""
 
     def desactiver(self) -> str:
         """Annonce la sortie ; la bascule effective est faite par finaliser_sortie() apres la phrase d'adieu."""
         with self._verrou:
             if not ETAT.actif:
+                self.resynchroniser()                 # HUD reste bloque en rouge alors que l'etat est normal : on le corrige
                 return self.rep.choisir("inactif", responses.INACTIF)
             self._arreter_simulation()
             ETAT.definir(sortie_en_attente=True)
@@ -82,7 +107,80 @@ class GhostController:
             self.desactiver_immediat()
             return True
 
+    # --- telemetrie reelle, sequence de demarrage, rapport de situation ---------------------------------------
+    def _demarrer_telemetrie(self):
+        if self._fil_tele and self._fil_tele.is_alive():
+            return
+        self._arret_tele = threading.Event()
+        self._fil_tele = threading.Thread(target=self._boucle_telemetrie, args=(self._arret_tele,), daemon=True, name="ghost-telemetry")
+        self._fil_tele.start()
+
+    def _boucle_telemetrie(self, arret, periode: float = 2.0):
+        from modes.ghost_protocol import telemetry
+        telemetry.lire()                                   # amorce les compteurs (cpu/reseau)
+        chaud = 0
+        while not arret.wait(periode):
+            try:
+                m = telemetry.lire()
+                self.mesures = m
+                hud_bridge.telemetrie(m)
+                chaud = chaud + 1 if (m.get("cpu") or 0) > 90 else 0
+                if chaud >= 2 and time.time() - self._derniere_alerte > 60:     # alerte REELLE, jamais spontanee a la voix
+                    self._derniere_alerte = time.time()
+                    hud_bridge.terminal(f"WARNING: CPU LOAD {m['cpu']:.0f} %", "warn")
+                    hud_bridge.son("alerte")
+            except Exception:
+                LOG.exception("telemetrie Ghost")
+
+    def _sequence_boot(self):
+        """Affiche des verifications REELLES (voix, LLM, HUD, telemetrie, bac a sable) -- pas un decor."""
+        pas = []
+        pas.append(("GHOST CORE", "ONLINE", "ok"))
+        try:
+            import hud
+            n = hud.nb_clients() if getattr(hud, "_SERVEUR", None) is not None else 0
+            pas.append(("HUD LINK", f"{n} DISPLAY(S)" if n else "NO DISPLAY", "ok" if n else "warn"))
+        except Exception:
+            pas.append(("HUD LINK", "UNAVAILABLE", "warn"))
+        if config.cle_api() and config.voice_id():
+            pas.append(("VOICE ENGINE", "ELEVENLABS READY (key present, not yet tested)", "ok"))
+        else:
+            pas.append(("VOICE ENGINE", "WINDOWS (no ElevenLabs key/voice configured)", "warn"))
+        try:
+            from core.llm import llm
+            f = llm()
+            pas.append(("LLM ROUTER", f"{getattr(f, 'nom', '?')} {'READY' if f.disponible() else 'UNAVAILABLE'}",
+                        "ok" if f.disponible() else "warn"))
+        except Exception:
+            pas.append(("LLM ROUTER", "UNAVAILABLE (local commands still work)", "warn"))
+        try:
+            import psutil  # noqa: F401
+            pas.append(("TELEMETRY", "LIVE (psutil)", "ok"))
+        except ImportError:
+            pas.append(("TELEMETRY", "UNAVAILABLE (psutil missing)", "warn"))
+        pas.append(("SANDBOX", "ARMED (network/process/write blocked)", "ok"))
+        for lib, statut, niv in pas:
+            if not ETAT.actif or ETAT.sortie_en_attente:
+                return
+            hud_bridge.boot(lib, statut, niv)
+            time.sleep(0.35 / max(0.05, self.vitesse))
+
+    def rapport_situation(self) -> str:
+        from modes.ghost_protocol import telemetry
+        m = telemetry.lire()
+        hud_bridge.terminal("SITUATION REPORT: " + telemetry.resume_parle(m).split(": ", 1)[-1], "info")
+        return self.rep.choisir("situation", responses.SITUATION_PREFIXE) + telemetry.resume_parle(m)
+
+    def contexte_llm(self) -> str:
+        """Ligne ajoutee au prompt du LLM tant que Ghost est actif : mesures REELLES, pour qu'il ne les invente pas."""
+        m = self.mesures
+        if not m:
+            return ""
+        return (f"Mesures systeme reelles a l'instant : CPU {m.get('cpu')} %, RAM {m.get('ram')} %, disque {m.get('disque')} %, "
+                f"batterie {m.get('batterie')}. N'invente aucune autre mesure.")
+
     def desactiver_immediat(self):
+        self._arret_tele.set()
         with self._verrou:
             self._arreter_simulation()
             self._tuer_sandbox()

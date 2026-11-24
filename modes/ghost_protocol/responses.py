@@ -8,6 +8,15 @@ ACTIVATION = [
     "Protocole Ghost en ligne. Tous les systèmes tactiques sont prêts, Commandant.",
     "Ghost Protocol initialisé. L'environnement est sécurisé. J'attends vos ordres, Commandant.",
 ]
+ACTIVATION += [
+    "Ghost en ligne. Capteurs actifs, canaux sécurisés. Donnez-moi une cible, Commandant.",
+    "Noyau tactique chargé. Je vous écoute, Commandant.",
+    "Protocole Ghost engagé. Tous les voyants sont au vert, Commandant.",
+]
+SITUATION_PREFIXE = ["Analyse de l'environnement terminée. ", "Scan interne terminé. ", "Diagnostic complet. "]
+IDENTITE = [
+    "Je suis Ghost, l'interface tactique de Jarvis. Je simule des scénarios, je surveille votre machine et je vous assiste, Commandant.",
+]
 DEJA_ACTIF = [
     "Le protocole Ghost est déjà actif, Commandant.",
     "Déjà en mode Ghost. Rien à réinitialiser.",
